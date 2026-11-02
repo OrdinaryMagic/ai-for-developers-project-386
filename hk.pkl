@@ -1,0 +1,37 @@
+amends "package://github.com/jdx/hk/releases/download/v2.11.0/hk@2.11.0#/Config.pkl"
+import "package://github.com/jdx/hk/releases/download/v2.11.0/hk@2.11.0#/Builtins.pkl"
+
+local linters = new Mapping<String, Step> {
+  ["oxfmt"] = (Builtins.oxfmt) {
+    check = "npm exec -- oxfmt --check --no-error-on-unmatched-pattern {{files}}"
+    fix = "npm exec -- oxfmt --write --no-error-on-unmatched-pattern {{files}}"
+    check_diff = null
+    exclude = List("**/pnpm-lock.yaml", "**/package-lock.json", "docs_prod.json", "docs_stage.json", "report_manager.md")
+  }
+  ["oxlint"] = (Builtins.ox_lint) {
+    prefix = List("npm", "exec", "--")
+  }
+  ["tsc"] = (Builtins.tsc) {
+    check = "npm exec -- tsc --noEmit -p {{workspace_indicator}}"
+  }
+  ["mise-fmt"] = Builtins.mise
+}
+
+hooks {
+  ["check"] {
+    steps = linters
+  }
+  ["fix"] {
+    steps = linters
+  }
+  ["pre-commit"] {
+    steps = linters
+  }
+  ["commit-msg"] {
+    steps {
+      ["commitlint"] {
+        check = "commitlint --edit {{commit_msg_file}}"
+      }
+    }
+  }
+}

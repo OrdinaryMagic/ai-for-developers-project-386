@@ -1,0 +1,66 @@
+#:schema https://mise.jdx.dev/schema/mise.json
+
+[settings]
+experimental = true
+
+[tools]
+node = "22"
+hk = "2.11.0"
+"npm:@commitlint/cli" = "latest"
+
+[env]
+NODE_ENV = "development"
+HOST = "127.0.0.1"
+PORT = "3000"
+
+[tasks.dev]
+description = "API dev server with tsx watch"
+run = "npm run dev"
+
+[tasks.build]
+description = "Compile TypeScript to dist/"
+run = "npm run build"
+
+[tasks.start]
+description = "Build and run the API (production)"
+depends = ["build"]
+run = "npm run start"
+
+[tasks.test]
+description = "Run vitest once"
+run = "npm run test"
+
+[tasks.lint]
+description = "Run oxlint"
+run = "npm run lint"
+
+[tasks.format]
+description = "Format with oxfmt"
+run = "npm run format"
+
+[tasks.typecheck]
+description = "Type-check without emitting"
+run = "npm run typecheck"
+
+[tasks.check]
+description = "typecheck + lint + format:check + test"
+depends = ["typecheck", "lint"]
+run = ["npm run format:check", "npm run test"]
+
+# --- mise hooks: environment events ---
+
+# after mise installs project tools, install npm dependencies and hk git hooks
+[hooks]
+postinstall = ["npm install", "hk install"]
+
+# re-install npm dependencies when package.json changes in an activated shell
+[[watch_files]]
+patterns = ["package.json"]
+run = "npm install"
+
+# --- mise daemons: background dev processes ---
+
+# background dev server: `mise daemons start api` (requires pitchfork)
+[daemons.api]
+run = "exec npm run dev"
+ready_port = 3000
