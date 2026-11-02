@@ -1,14 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
 import type { BookingStore } from "../store/booking-store.js";
-
-/**
- * Зависимости, инжектируемые в плагин: `store` и `now()`. `now` обязателен —
- * мы не используем `new Date()` напрямую, чтобы время было управляемым и
- * тестируемым. См. `buildApp` — там формируется `clock`.
- */
-export interface Clock {
-  now(): import("luxon").DateTime;
-}
+import type { Clock } from "../app.js";
 
 /**
  * Эндпоинт `GET /meeting-types/:id/availability`:
@@ -21,7 +13,7 @@ export interface Clock {
  */
 export const availabilityRoutes: FastifyPluginAsync<{
   store: BookingStore;
-  clock: Clock["now"];
+  clock: Clock;
 }> = async (app, opts) => {
   const { store, clock } = opts;
 

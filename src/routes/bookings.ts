@@ -1,19 +1,19 @@
 import { Type, type Static } from "@sinclair/typebox";
 import type { FastifyPluginAsync } from "fastify";
 import type { BookingStore } from "../store/booking-store.js";
-import type { Clock } from "./availability.js";
+import type { Clock } from "../app.js";
 
 /** Тело `POST /bookings`. Соответствует `CreateBookingRequest` в спеке. */
 const CreateBookingDto = Type.Object({
   meetingTypeId: Type.String(),
-  startsAt: Type.String(),
+  startsAt: Type.String({ format: "date-time" }),
   guestName: Type.String({ minLength: 1, maxLength: 120 }),
-  guestEmail: Type.String({ minLength: 3, maxLength: 254 }),
+  guestEmail: Type.String({ minLength: 3, maxLength: 254, format: "email" }),
 });
 
 export const bookingsRoutes: FastifyPluginAsync<{
   store: BookingStore;
-  clock: Clock["now"];
+  clock: Clock;
 }> = async (app, opts) => {
   const { store, clock } = opts;
 

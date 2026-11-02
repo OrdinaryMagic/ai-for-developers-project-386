@@ -137,7 +137,7 @@ components:
           description: Дата начала окна в формате ISO 8601 (по TZ владельца).
         windowEnd:
           type: string
-          description: Дата конца окна включительно (по TZ владельца).
+          description: Дата конца окна в формате ISO 8601, исключительно — полночь первого дня за пределами окна (по TZ владельца).
         days:
           type: array
           items:

@@ -28,7 +28,7 @@ export interface BuildAppOptions {
 
 export async function buildApp(opts: BuildAppOptions = {}): Promise<FastifyInstance> {
   const config = opts.config ?? loadOwnerConfig();
-  const meetingTypeStore = new MeetingTypeStore(config.slotStepMinutes);
+  const meetingTypeStore = new MeetingTypeStore();
   const bookingStore = new BookingStore(meetingTypeStore, config);
 
   const clock: Clock = opts.clock ?? (() => DateTime.now().setZone(config.owner.timezone));

@@ -13,13 +13,6 @@ import type { MeetingType } from "../types.js";
 export class MeetingTypeStore {
   private readonly map = new Map<string, MeetingType>();
 
-  /**
-   * Шаг слотов в минутах. Нужен как минимум для семантической связки (например,
-   * чтобы будущие проверки консистентности могли опираться на это значение),
-   * но сам store никаких ограничений на `durationMinutes` сейчас не накладывает.
-   */
-  constructor(public readonly slotStepMinutes: number) {}
-
   create(input: Omit<MeetingType, "id">): MeetingType {
     const mt: MeetingType = { id: randomUUID(), ...input };
     this.map.set(mt.id, mt);

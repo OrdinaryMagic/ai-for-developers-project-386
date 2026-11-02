@@ -184,6 +184,51 @@ describe("POST /bookings", () => {
     const codes = [a.statusCode, b.statusCode].toSorted();
     expect(codes).toEqual([200, 409]);
   });
+
+  it("принимает слот в день now, но уже прошедший (deliberate per Q16.8)", async () => {
+    const { server, meetingTypeId } = await makeApp();
+    const res = await server.inject({
+      method: "POST",
+      url: "/bookings",
+      payload: {
+        meetingTypeId,
+        startsAt: "2025-11-03T09:00:00+03:00",
+        guestName: "Past",
+        guestEmail: "p@x.test",
+      },
+    });
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("отвергает не-email формат через Fastify-schema (400)", async () => {
+    const { server, meetingTypeId } = await makeApp();
+    const res = await server.inject({
+      method: "POST",
+      url: "/bookings",
+      payload: {
+        meetingTypeId,
+        startsAt: "2025-11-04T09:00:00+03:00",
+        guestName: "X",
+        guestEmail: "не-email",
+      },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("отвергает битый ISO date-time через Fastify-schema (400)", async () => {
+    const { server, meetingTypeId } = await makeApp();
+    const res = await server.inject({
+      method: "POST",
+      url: "/bookings",
+      payload: {
+        meetingTypeId,
+        startsAt: "hello",
+        guestName: "X",
+        guestEmail: "x@x.test",
+      },
+    });
+    expect(res.statusCode).toBe(400);
+  });
 });
 
 describe("GET /bookings", () => {
@@ -222,6 +267,35 @@ describe("GET /bookings", () => {
     expect(body).toHaveLength(2);
     expect(body[0].startsAt).toBe("2025-11-03T16:00:00+03:00");
     expect(body[1].startsAt).toBe("2025-11-05T09:00:00+03:00");
+  });
+
+  it("не показывает записи со стартом до now (owner list — предстоящие)", async () => {
+    const { server, meetingTypeId } = await makeApp();
+    // 09:00 сегодня при now=14:00 — это прошлое.
+    await server.inject({
+      method: "POST",
+      url: "/bookings",
+      payload: {
+        meetingTypeId,
+        startsAt: "2025-11-03T09:00:00+03:00",
+        guestName: "Past",
+        guestEmail: "p@x.test",
+      },
+    });
+    await server.inject({
+      method: "POST",
+      url: "/bookings",
+      payload: {
+        meetingTypeId,
+        startsAt: "2025-11-03T16:00:00+03:00",
+        guestName: "Future",
+        guestEmail: "f@x.test",
+      },
+    });
+    const res = await server.inject({ method: "GET", url: "/bookings" });
+    const body = res.json();
+    expect(body).toHaveLength(1);
+    expect(body[0].guestName).toBe("Future");
   });
 });
 
