@@ -24,3 +24,17 @@
 - Вход: `src/server.ts` → `buildApp()` из `src/app.ts`, маршруты в `src/routes/*.ts`. Сейчас только `GET /` и `GET /health`.
 - Тесты через `app.inject({ method, url })` — Fastify прогоняет запросы in-process, порт биндить не надо.
 - `[env]` в `mise.toml` (`HOST`, `PORT`, `NODE_ENV`) подхватывается автоматически — отдельный `.env` под эти переменные не нужен.
+
+## Скиллы агента
+
+### Трекер задач
+
+Задачи живут в GitHub Issues; чтение/запись через CLI `gh`. Подробности — в `docs/agents/issue-tracker.md`.
+
+### Лейблы триажа
+
+Стандартный пятиролевой словарь (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). Подробности — в `docs/agents/triage-labels.md`.
+
+### Доменная документация
+
+Single-context: `GLOSSARY.md` в корне репозитория, `docs/adr/` для ADR. Подробности — в `docs/agents/domain.md`.
