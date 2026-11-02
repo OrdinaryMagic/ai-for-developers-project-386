@@ -1,0 +1,33 @@
+name: CI
+
+# Run all project checks on every push (branches + tags).
+# Hexlet's own check workflow lives in hexlet-check.yml and stays untouched.
+
+on:
+  push:
+    branches:
+      - "**"
+    tags:
+      - "**"
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Project checks (mise run check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Reads mise.toml, installs the pinned versions of the tools (Node 22,
+      # hk, npm:@commitlint/cli) and runs the postinstall hook which does
+      # `npm install` and `hk install` (git hooks). Built-in cache keeps the
+      # tool-install layer fast.
+      - uses: jdx/mise-action@v5
+        with:
+          cache: true
+          install_args: ""
+
+      - name: Run all project checks
+        run: mise run check

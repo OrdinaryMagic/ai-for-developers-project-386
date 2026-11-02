@@ -43,9 +43,8 @@ description = "Type-check without emitting"
 run = "npm run typecheck"
 
 [tasks.check]
-description = "typecheck + lint + format:check + test"
-depends = ["typecheck", "lint"]
-run = ["npm run format:check", "npm run test"]
+description = "All project checks: typecheck + lint + format:check + test (fail-fast, sequential)"
+run = "npm run typecheck && npm run lint && npm run format:check && npm run test"
 
 # --- mise hooks: environment events ---
 

@@ -47,6 +47,7 @@ make check     # typecheck + lint + format:check + тесты
 
 - Инструменты и окружение — `mise.toml`: Node 22, `PORT=3000`, `HOST=127.0.0.1`.
 - Таски: `mise run dev|start|build|test|lint|format|typecheck|check`.
+  - **`mise run check`** — единая команда для всех проверок (typecheck → lint → format:check → test), выполняет их последовательно с fail-fast. Используется локально (`make check`) и в CI.
 - Хуки (события окружения): `postinstall` → `npm install` после установки инструментов mise; `watch_files` на `package.json` → `npm install` при изменении в активированном шелле.
 - Демоны (фоновые процессы разработки): фоновый dev-сервер API — `make daemon` / `make daemon-stop` (`mise daemons start api`, `ready_port = 3000`; требуется pitchfork: `mise use -g pitchfork`).
 
@@ -63,3 +64,7 @@ make check     # typecheck + lint + format:check + тесты
 ### Коммиты
 
 Conventional Commits — формат `type(scope): subject` (feat, fix, chore, docs, test, ...). Проверка: хук `commit-msg` через hk; вручную — `npx commitlint --edit` (конфиг `commitlint.config.js`).
+
+### CI
+
+Workflow `.github/workflows/ci.yml` запускается на каждый push (любая ветка и тег). Использует `jdx/mise-action@v5` для установки инструментов из `mise.toml` (Node 22, hk и т.д.) с кэшем, выполняет postinstall-хук mise (`npm install` + `hk install`) и запускает `mise run check`. Стандартный Hexlet-чекер лежит отдельно в `hexlet-check.yml` и его трогать не нужно.
