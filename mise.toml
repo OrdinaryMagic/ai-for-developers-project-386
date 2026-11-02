@@ -26,6 +26,10 @@ description = "Build and run the API (production)"
 depends = ["build"]
 run = "npm run start"
 
+[tasks.spec]
+description = "Compile TypeSpec to dist/openapi.yaml"
+run = "npx tsp compile spec/main.tsp"
+
 [tasks.test]
 description = "Run vitest once"
 run = "npm run test"

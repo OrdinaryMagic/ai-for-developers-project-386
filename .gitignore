@@ -6,3 +6,5 @@ coverage/
 .env.*
 !.env.example
 .mise.local.toml
+.opencode/
+.idea/

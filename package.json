@@ -18,12 +18,22 @@
   },
   "dependencies": {
     "@fastify/sensible": "^6.0.7",
-    "fastify": "^5.12.7"
+    "@fastify/swagger": "^9.9.3",
+    "@fastify/swagger-ui": "^6.1.2",
+    "@fastify/type-provider-typebox": "^6.3.0",
+    "@sinclair/typebox": "^0.34.52",
+    "fastify": "^5.12.7",
+    "luxon": "^3.7.2"
   },
   "devDependencies": {
     "@commitlint/cli": "^21.2.4",
     "@commitlint/config-conventional": "^21.2.4",
+    "@types/luxon": "^3.7.6",
     "@types/node": "^26.6.6",
+    "@typespec/compiler": "^1.17.0",
+    "@typespec/http": "^1.17.0",
+    "@typespec/openapi3": "^1.17.0",
+    "@typespec/rest": "^0.87.0",
     "oxfmt": "^0.75.0",
     "oxlint": "^1.90.0",
     "tsx": "^4.23.15",
