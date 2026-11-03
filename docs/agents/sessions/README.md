@@ -24,3 +24,4 @@ Closing-comment на cart issue содержит похожую информац
 
 - [2026-11-04-cart-1-housekeeping.md](2026-11-04-cart-1-housekeeping.md) — закрытие cart #1 «Booking API v1: карта пути от текущего каркаса к готовой v1 API». Squash в PR #37 (`efea86c`), release 1.0.0 опубликован через PR #36.
 - [2026-11-04-cart-26-ui-and-e2e.md](2026-11-04-cart-26-ui-and-e2e.md) — закрытие cart #26 «Booking API v1 — UI & E2E: карта пути к браузерному сценарию». Squash в PR #38 (`81cfabf`), release 1.1.0 опубликован через PR #39 (release-please minor bump из `feat:`-коммитов cart #26).
+- [2026-11-04-issue-10-closure.md](2026-11-04-issue-10-closure.md) — closing-the-loop на спеке #10 «Booking API v1: готовая v1 API»: 6 sub-slices + root уже доставлены в cart #1 (PR #23), а запуск `@implement-spec` свёлся к grep-verification покрытия acceptance + `gh issue close` каждого. Без кода и без PR.
