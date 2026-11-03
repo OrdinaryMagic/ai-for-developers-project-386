@@ -7,6 +7,7 @@ experimental = true
 node = "22"
 hk = "2.11.0"
 "npm:@commitlint/cli" = "latest"
+gitleaks = "8.18.4"
 
 [env]
 NODE_ENV = "development"
