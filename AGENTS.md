@@ -48,3 +48,7 @@
 ### Доменная документация
 
 Single-context: `GLOSSARY.md` в корне репозитория, `docs/adr/` для ADR. Подробности — в `docs/agents/domain.md`.
+
+### Историю implement-spec сессий вести в `docs/agents/sessions/`
+
+Каждая сессия `@implement-spec` оставляет manifest в `docs/agents/sessions/YYYY-MM-DD-<cart-id>-<short>.md` (индекс в `README.md`). В манифесте — какие sub-tickets закрыты, non-obvious drift (отклонения от спецификации с reasons), code-review findings и post-merge fixups с SHA. Это помогает следующему агенту в новой session бегло понять, что выкатили, без чтения всего `git log`. Cart-closed комментарий в GitHub issue остаётся canonical short-trace; манифест в `docs/` — это длинная версия с drift и reasoning.
