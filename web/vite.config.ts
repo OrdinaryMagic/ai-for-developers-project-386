@@ -8,6 +8,11 @@ import path from "node:path";
  * порт dev-сервера (3000), но e2e-тесты поднимают Fastify на отдельном
  * порту и подставляют свой target через env `VITE_API_TARGET` (см.
  * `playwright.config.ts` → `webServer[1].env`).
+ *
+ * `rewrite` СТРИПАЕТ префикс `/api` при проксировании: Fastify маршруты
+ * зарегистрированы как `/meeting-types`, `/bookings` и т.д. (без `/api`),
+ * а не `/api/meeting-types`. Дефолт Vite оставляет путь нетронутым, что
+ * даёт 404 на каждом запросе в dev-режиме.
  */
 const API_TARGET = process.env.VITE_API_TARGET ?? "http://127.0.0.1:3000";
 
@@ -25,6 +30,7 @@ export default defineConfig({
       "/api": {
         target: API_TARGET,
         changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api/, ""),
       },
     },
   },
