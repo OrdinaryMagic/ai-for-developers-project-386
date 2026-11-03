@@ -32,7 +32,8 @@ export function parseHHMM(s: string): number {
 }
 
 /**
- * Проверяет правило Q18: интервал `[slot.start, slot.start + durationMinutes)`
+ * Проверяет инвариант Step alignment (см. GLOSSARY.md): интервал
+ * `[slot.start, slot.start + durationMinutes)`
  * целиком лежит внутри рабочего дня владельца в его TZ.
  *
  * Условие: `slot.start >= wh.start` И `slot.start + duration <= wh.end`.
