@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/OrdinaryMagic/ai-for-developers-project-386/compare/v1.0.0...v1.1.0) (2026-11-03)
+
+
+### Features
+
+* cart [#26](https://github.com/OrdinaryMagic/ai-for-developers-project-386/issues/26) — UI & E2E (сквозной браузерный сценарий через Playwright против реального Fastify) ([#38](https://github.com/OrdinaryMagic/ai-for-developers-project-386/issues/38)) ([81cfabf](https://github.com/OrdinaryMagic/ai-for-developers-project-386/commit/81cfabfbddbbf7387a5d442bb4fd40365a4f49a2))
+
 ## 1.0.0 (2026-11-03)
 
 
