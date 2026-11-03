@@ -36,14 +36,14 @@ test("guest conflict: two browser contexts POST the same slot; second sees SLOT_
   const api = await pwRequest.newContext({
     baseURL: `http://127.0.0.1:${API_PORT}`,
   });
-  const create = await api.post("/api/meeting-types", {
+  const create = await api.post("/meeting-types", {
     data: {
       name: "Конфликтная консультация",
       description: "Слот для проверки SLOT_TAKEN.",
       durationMinutes: 30,
     },
   });
-  expect(create.status(), "seed POST /api/meeting-types").toBe(201);
+  expect(create.status(), "seed POST /api/meeting-types").toBe(200);
 
   // Два независимых контекста = две независимые cookie-jar для гипотетической
   // auth в будущем; auth в v1 нет, но архитектурно тест уже корректен.

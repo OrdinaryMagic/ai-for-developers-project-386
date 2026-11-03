@@ -39,14 +39,14 @@ test("guest happy path: select meeting type, pick slot, submit, see success UUID
   // нужен — это эквивалент того, что owner сделал бы через `/admin/event-types`,
   // просто без раскрытия всех testid'ов owner-формы в публичном e2e.
   const api = await pwRequest.newContext({ baseURL: API_BASE });
-  const create = await api.post("/api/meeting-types", {
+  const create = await api.post("/meeting-types", {
     data: {
       name: "Тестовая консультация",
       description: "Автотестовый слот для happy-path.",
       durationMinutes: 30,
     },
   });
-  expect(create.status(), "seed POST /api/meeting-types").toBe(201);
+  expect(create.status(), "seed POST /api/meeting-types").toBe(200);
 
   await page.goto("/");
   await expect(page.getByTestId("home-page")).toBeVisible();
