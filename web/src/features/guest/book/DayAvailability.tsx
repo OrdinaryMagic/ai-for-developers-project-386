@@ -2,7 +2,16 @@ import { Badge } from "@/components/ui/badge";
 import type { AvailabilityDay } from "@/features/guest/api";
 import { SlotButton } from "@/features/guest/book/SlotButton";
 
-export function DayAvailability({ day }: { day: AvailabilityDay }) {
+export interface DayAvailabilityProps {
+  day: AvailabilityDay;
+  /**
+   * Колбэк для каждого `SlotButton` — пробрасывается из {@link BookPage}
+   * (см. commit body #33: выбор слота держится локальным state).
+   */
+  onSlotClick?: (startsAt: string) => void;
+}
+
+export function DayAvailability({ day, onSlotClick }: DayAvailabilityProps) {
   const slotsCount = day.slots.length;
   return (
     <section
@@ -23,7 +32,11 @@ export function DayAvailability({ day }: { day: AvailabilityDay }) {
       ) : (
         <div data-testid="day-slots" className="flex flex-wrap gap-2">
           {day.slots.map((startsAt) => (
-            <SlotButton key={startsAt} startsAt={startsAt} />
+            <SlotButton
+              key={startsAt}
+              startsAt={startsAt}
+              onClick={onSlotClick ? () => onSlotClick(startsAt) : undefined}
+            />
           ))}
         </div>
       )}

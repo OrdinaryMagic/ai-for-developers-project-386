@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useCallback, useEffect, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 
 import { getAvailability, type Availability } from "@/features/guest/api";
+import { BookingForm } from "@/features/guest/book/BookingForm";
 import { DayAvailability } from "@/features/guest/book/DayAvailability";
 
 type State =
@@ -9,9 +10,21 @@ type State =
   | { kind: "ready"; availability: Availability }
   | { kind: "error"; message: string };
 
+/**
+ * `/book/:meetingTypeId` — выбор слота или заполнение брони.
+ *
+ * Решение по роутингу (см. commit body #33): слот выбирается локальным
+ * state, а не отдельным URL. Форма появляется inline поверх сетки, и
+ * только при успешном POST родитель навигирует на `/confirmed` через
+ * `location.state`. Это мини-роутер без третьего маршрута
+ * `/book/:id/confirm-form` и оставляет URL `/book/:id` постоянным во
+ * время «выбрал слот → заполняю поля».
+ */
 export function BookPage() {
   const { meetingTypeId } = useParams<{ meetingTypeId: string }>();
+  const navigate = useNavigate();
   const [state, setState] = useState<State>({ kind: "loading" });
+  const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
 
   useEffect(() => {
     if (!meetingTypeId) {
@@ -34,6 +47,21 @@ export function BookPage() {
       aborted = true;
     };
   }, [meetingTypeId]);
+
+  const handleBooked = useCallback(
+    (booking: { id: string; meetingTypeId: string }) => {
+      if (!meetingTypeId) return;
+      navigate(`/book/${meetingTypeId}/confirmed`, {
+        state: { booking },
+        replace: true,
+      });
+    },
+    [meetingTypeId, navigate],
+  );
+
+  const handleCancel = useCallback(() => {
+    setSelectedSlot(null);
+  }, []);
 
   return (
     <div data-testid="book-page" className="container py-8">
@@ -58,13 +86,23 @@ export function BookPage() {
         >
           {state.message}
         </div>
+      ) : selectedSlot !== null && meetingTypeId ? (
+        <section className="max-w-md space-y-4">
+          <h2 className="text-xl font-medium">Заполните данные</h2>
+          <BookingForm
+            meetingTypeId={meetingTypeId}
+            slot={selectedSlot}
+            onBooked={handleBooked}
+            onCancel={handleCancel}
+          />
+        </section>
       ) : (
         <div
           data-testid="book-grid"
           className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4"
         >
           {state.availability.days.map((day) => (
-            <DayAvailability key={day.date} day={day} />
+            <DayAvailability key={day.date} day={day} onSlotClick={setSelectedSlot} />
           ))}
         </div>
       )}
