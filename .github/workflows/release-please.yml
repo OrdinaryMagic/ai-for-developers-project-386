@@ -1,0 +1,50 @@
+# Google release-please action — see config in release-please-config.json and
+# version snapshot in .github/release-please-manifest.json.
+#
+# Two triggers:
+#   - push to `main`       — each merge into main re-runs release-please,
+#                            which opens/updates the Release PR or (after a
+#                            Release PR merge) creates the git tag + GitHub
+#                            Release.
+#   - workflow_run on the  — secondary trigger that makes the workflow also
+#     release-please           re-enter when its own run finishes. The job
+#     workflow completion    `if:` below filters out self-referential events
+#                            so this never produces a run loop.
+name: release-please
+
+on:
+  push:
+    branches:
+      - main
+  workflow_run:
+    workflows:
+      - release-please
+    types:
+      - completed
+
+# release-please creates git tags, the GitHub Release, the Release PR and
+# its label/comment. Both write scopes are required.
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    # Skip workflow_run events whose origin was itself a workflow_run (i.e.
+    # propagated from our own previous runs). `push` origin events are
+    # legitimate re-entries; external `pull_request` origin events are kept
+    # future-proof (none exist today).
+    if: >-
+      github.event_name == 'push' ||
+      (
+        github.event_name == 'workflow_run' &&
+        github.event.workflow_run.event != 'workflow_run' &&
+        github.event.workflow_run.conclusion == 'success'
+      )
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v5
+        with:
+          release-type: node
+          config-file: release-please-config.json
+          manifest-file: .github/release-please-manifest.json
