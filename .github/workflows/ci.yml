@@ -29,5 +29,19 @@ jobs:
           cache: true
           install_args: ""
 
+      # TypeSpec → OpenAPI регенерируется перед всеми проверками. Если
+      # закоммиченный openapi.yaml отличается от того, что генерируется из
+      # spec/*.tsp, CI падает — значит, кто-то отредактировал openapi.yaml
+      # руками или не перегенерировал после правки схемы (см. AGENTS.md rule
+      # #9 про generated файлы).
+      - name: Regenerate OpenAPI and verify it is up-to-date
+        run: |
+          mise run spec
+          if ! git diff --exit-code openapi.yaml > /dev/null; then
+            echo "::error::openapi.yaml is out of date — regenerated from spec/ differs from committed."
+            git --no-pager diff --no-color openapi.yaml
+            exit 1
+          fi
+
       - name: Run all project checks
         run: mise run check

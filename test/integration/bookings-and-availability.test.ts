@@ -352,3 +352,83 @@ describe("GET /meeting-types/:id/availability", () => {
     expect(res.json().code).toBe("MEETING_TYPE_NOT_FOUND");
   });
 });
+
+describe("Конфликт слотов разной длительности", () => {
+  it("возвращает 409 SLOT_TAKEN при частичном наложении (60 мин 10:00 vs 30 мин 10:30)", async () => {
+    const { server } = await makeApp();
+    const long = await server.inject({
+      method: "POST",
+      url: "/meeting-types",
+      payload: { name: "Long", description: "", durationMinutes: 60 },
+    });
+    expect(long.statusCode).toBe(200);
+    const short = await server.inject({
+      method: "POST",
+      url: "/meeting-types",
+      payload: { name: "Short", description: "", durationMinutes: 30 },
+    });
+    expect(short.statusCode).toBe(200);
+
+    const longBook = await server.inject({
+      method: "POST",
+      url: "/bookings",
+      payload: {
+        meetingTypeId: long.json().id,
+        startsAt: "2025-11-03T10:00:00+03:00",
+        guestName: "LongGuest",
+        guestEmail: "long@x.test",
+      },
+    });
+    expect(longBook.statusCode).toBe(200);
+
+    const partialOverlap = await server.inject({
+      method: "POST",
+      url: "/bookings",
+      payload: {
+        meetingTypeId: short.json().id,
+        startsAt: "2025-11-03T10:30:00+03:00",
+        guestName: "ShortGuest",
+        guestEmail: "short@x.test",
+      },
+    });
+    expect(partialOverlap.statusCode).toBe(409);
+    expect(partialOverlap.json().code).toBe("SLOT_TAKEN");
+  });
+
+  it("встык (60 мин 10:00, 30 мин 11:00) разрешено — нет пересечения", async () => {
+    const { server } = await makeApp();
+    const long = await server.inject({
+      method: "POST",
+      url: "/meeting-types",
+      payload: { name: "Long", description: "", durationMinutes: 60 },
+    });
+    const short = await server.inject({
+      method: "POST",
+      url: "/meeting-types",
+      payload: { name: "Short", description: "", durationMinutes: 30 },
+    });
+
+    await server.inject({
+      method: "POST",
+      url: "/bookings",
+      payload: {
+        meetingTypeId: long.json().id,
+        startsAt: "2025-11-03T10:00:00+03:00",
+        guestName: "L",
+        guestEmail: "l@x.test",
+      },
+    });
+
+    const adjacentBook = await server.inject({
+      method: "POST",
+      url: "/bookings",
+      payload: {
+        meetingTypeId: short.json().id,
+        startsAt: "2025-11-03T11:00:00+03:00",
+        guestName: "Adj",
+        guestEmail: "adj@x.test",
+      },
+    });
+    expect(adjacentBook.statusCode).toBe(200);
+  });
+});

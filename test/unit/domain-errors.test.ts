@@ -7,6 +7,7 @@ const cases: Array<{ code: DomainErrorCode; statusCode: number }> = [
   { code: "OUTSIDE_WINDOW", statusCode: 422 },
   { code: "MISMATCH_STEP", statusCode: 422 },
   { code: "SLOT_TAKEN", statusCode: 409 },
+  { code: "INVALID_DURATION", statusCode: 422 },
 ];
 
 describe("makeDomainError", () => {
@@ -34,7 +35,16 @@ describe("makeDomainError", () => {
       "OUTSIDE_WINDOW",
       "MISMATCH_STEP",
       "SLOT_TAKEN",
+      "INVALID_DURATION",
     ];
     expect(new Set(codes.map((c) => makeDomainError(c).code)).size).toBe(codes.length);
+  });
+
+  it("INVALID_DURATION имеет русское дефолтное сообщение", () => {
+    const err = makeDomainError("INVALID_DURATION");
+    expect(err.code).toBe("INVALID_DURATION");
+    expect(err.statusCode).toBe(422);
+    expect(typeof err.message).toBe("string");
+    expect(err.message.length).toBeGreaterThan(0);
   });
 });
