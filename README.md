@@ -169,6 +169,34 @@ Multi-arch (`linux/arm64`), image-signing и push в remote registry
 **не делаются** — см. «Out of scope» карты #42 (production
 manifests, supply-chain security, remote-vault — тоже out of scope).
 
+## Security
+
+Карта #42 добавляет defense-in-depth скан репо на leaked credentials
+через [`gitleaks`](https://github.com/gitleaks/gitleaks) (тикет #44):
+pre-commit hook ловит утечку до `git push`, CI ловит то, что проскочило
+мимо локального хука. Конфиг — `.gitleaks.toml` в корне репозитория
+(allowlist для commit-SHA и test-fixtures, см. тикет #47).
+
+- **Локально**: pre-commit step в `hk.pkl` запускает
+  `gitleaks protect --staged --redact=20 --verbose --no-banner` против
+  staged-изменений (тикет #48). Стандартный flow: правите файлы → `git
+  add` → `git commit`; `hk` step сам прогонит gitleaks на stage. Для
+  ручной проверки всего репо: `hk check --all`.
+- **CI**: workflow `.github/workflows/ci.yml` → джоб `check` → шаг
+  «Scan repo for secrets (gitleaks)» через
+  `gitleaks/gitleaks-action@v2` (тикет #49). Бежит **до** Regenerate
+  OpenAPI и `mise run check`, чтобы утечка токенов не маскировалась
+  fail-fast по regeneration-скриптам.
+
+**Smoke-чек end-to-end** (тикет #50): `./scripts/gitleaks-smoke.sh`.
+Создаёт фейковый AWS-docs ключ в временном файле, стейджит его,
+ожидает что gitleaks его детектит (exit ≠ 0), затем
+`git reset` всё чистит. Запускайте после правок `.gitleaks.toml`
+или `hk.pkl`, чтобы убедиться что новый allowlist не закрыл
+настоящие утечки. Smoke-чек никуда не коммитит fake-secret — он
+работает только в staging area. Для проверки CI-слоя: push в любую
+ветку и `gh run watch <run-id>`.
+
 ## UI / E2E
 
 Frontend и end-to-end тесты — отдельная итерация карты #26 («Booking API v1 — UI & E2E»). Этот раздел собирает команды и правила для фронтенд-инженеров; сам код появится в последующих тикетах той же карты.
