@@ -35,12 +35,16 @@ export const meetingTypesRoutes: FastifyPluginAsync<{ store: MeetingTypeStore }>
     {
       schema: {
         body: CreateMeetingTypeDto,
-        response: { 200: MeetingTypeDto },
       },
     },
-    async (req) => {
+    async (req, reply) => {
       const body = req.body as CreateBody;
-      return store.create(body);
+      const outcome = store.create(body);
+      if (!outcome.ok) {
+        reply.code(outcome.error.statusCode);
+        return outcome.error;
+      }
+      return outcome.value;
     },
   );
 

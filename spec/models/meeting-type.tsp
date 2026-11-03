@@ -14,7 +14,9 @@ model MeetingType {
   @maxLength(2000)
   description: string;
 
-  @doc("Длительность встречи в минутах.")
+  @doc("Длительность встречи в минутах: положительное целое <= 1440 (сутки), кратное `slotStepMinutes`.")
+  @minValue(1)
+  @maxValue(1440)
   durationMinutes: int32;
 }
 
@@ -28,6 +30,8 @@ model CreateMeetingTypeRequest {
   @maxLength(2000)
   description: string;
 
-  @doc("Длительность встречи в минутах; v1 — должна быть кратна `slotStepMinutes`.")
+  @doc("Длительность встречи в минутах. Должна быть в [1, 1440] и кратна `slotStepMinutes` (30 по умолчанию). Не-кратное значение → 422 INVALID_DURATION.")
+  @minValue(1)
+  @maxValue(1440)
   durationMinutes: int32;
 }

@@ -7,7 +7,8 @@ export type DomainErrorCode =
   | "OUTSIDE_WORKING_HOURS"
   | "OUTSIDE_WINDOW"
   | "MISMATCH_STEP"
-  | "SLOT_TAKEN";
+  | "SLOT_TAKEN"
+  | "INVALID_DURATION";
 
 /**
  * Тело ответа с доменной ошибкой. Соответствует схеме `DomainError` в `openapi.yaml`.
@@ -41,6 +42,10 @@ const DEFINITIONS = {
   SLOT_TAKEN: {
     statusCode: 409,
     defaultMessage: "Слот уже занят другим (или тем же) бронированием.",
+  },
+  INVALID_DURATION: {
+    statusCode: 422,
+    defaultMessage: "Длительность встречи должна быть кратна шагу слотов.",
   },
 } satisfies Record<DomainErrorCode, { statusCode: number; defaultMessage: string }>;
 
