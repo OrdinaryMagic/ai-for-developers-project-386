@@ -68,3 +68,36 @@ Conventional Commits — формат `type(scope): subject` (feat, fix, chore, 
 ### CI
 
 Workflow `.github/workflows/ci.yml` запускается на каждый push (любая ветка и тег). Использует `jdx/mise-action@v5` для установки инструментов из `mise.toml` (Node 22, hk и т.д.) с кэшем, выполняет postinstall-хук mise (`npm install` + `hk install`) и запускает `mise run check`. Стандартный Hexlet-чекер лежит отдельно в `hexlet-check.yml` и его трогать не нужно.
+
+### Релизы
+
+Версия пакета `booking-api` в `package.json` и `CHANGELOG.md` в корне репозитория —
+это сгенерированные артефакты, поддерживаемые автоматически.
+
+**Bump-семантика** (Conventional Commits, проверяется хуком `commit-msg`):
+
+- `feat:` → `minor` (`0.1.0` → `0.2.0`);
+- `fix:` → `patch` (`0.1.0` → `0.1.1`);
+- `BREAKING CHANGE:` в footer или `!` после type/scope → `major`
+  (`0.1.0` → `1.0.0`, дальше следующая мажорная).
+
+**Поток релиза** — workflow `.github/workflows/release-please.yml`, конфиг
+`release-please-config.json` в корне, manifest
+`.github/release-please-manifest.json`:
+
+1. Push в `main` запускает release-please.
+2. release-please открывает (или обновляет) PR `chore(main): release X.Y.Z`
+   — обновлены `package.json#version` и верх `CHANGELOG.md`
+   (раздел со ссылками на PR).
+3. Мейнтейнер проверяет diff и мёрджит PR — это и есть релиз:
+   release-please ставит git-тег `vX.Y.Z` и создаёт GitHub Release.
+
+Если с прошлого релиза в `main` не появилось ни одного Conventional Commit уровня
+`feat` / `fix`, release-PR не открывается.
+
+> ⚠️ **Запрещено править руками** `package.json#version` и `CHANGELOG.md`. Оба
+> файла генерируются release-please и перезаписываются следующим релизом. По той
+> же логике, что и AGENTS.md rule #9 про generated артефакты.
+
+Подробности решения и альтернативы —
+[ADR-0003](docs/adr/0003-release-please-for-automated-releases.md).
