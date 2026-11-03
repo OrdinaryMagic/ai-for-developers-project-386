@@ -20,7 +20,8 @@
     "preview:web": "npm --prefix web run preview",
     "typecheck:web": "npm --prefix web run typecheck",
     "lint:web": "npm --prefix web run lint",
-    "test:web": "npm --prefix web run test"
+    "test:web": "npm --prefix web run test",
+    "gen:sdk": "mise run gen:sdk"
   },
   "dependencies": {
     "@fastify/sensible": "^6.0.7",

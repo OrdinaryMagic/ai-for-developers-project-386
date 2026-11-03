@@ -30,6 +30,11 @@ run = "npm run start"
 description = "Compile TypeSpec to dist/openapi.yaml"
 run = "npx tsp compile spec/main.tsp"
 
+[tasks."gen:sdk"]
+description = "Regenerate web/src/api/sdk.ts from openapi.yaml"
+depends = ["spec"]
+run = "npx -y openapi-typescript@7.13.0 ./openapi.yaml -o ./web/src/api/sdk.ts && npx oxfmt ./web/src/api/sdk.ts"
+
 [tasks.test]
 description = "Run vitest once"
 run = "npm run test"

@@ -43,5 +43,19 @@ jobs:
             exit 1
           fi
 
+      # openapi.yaml → TS-типы для фронта. Шаг бежит ПОСЛЕ Regenerate OpenAPI,
+      # чтобы любой drift, прилетевший из spec/*.tsp, уже был зафиксирован в
+      # openapi.yaml до регенерации SDK. Если коммитированный web/src/api/sdk.ts
+      # отличается от того, что выдаёт `mise run gen:sdk`, CI падает — см.
+      # AGENTS.md rule #9 (web/src/api/sdk.ts is a generated artifact).
+      - name: Regenerate SDK and verify it is up-to-date
+        run: |
+          mise run gen:sdk
+          if ! git diff --exit-code web/src/api/sdk.ts > /dev/null; then
+            echo "::error::web/src/api/sdk.ts is out of date — regenerated from openapi.yaml differs from committed."
+            git --no-pager diff --no-color web/src/api/sdk.ts | head -200
+            exit 1
+          fi
+
       - name: Run all project checks
         run: mise run check
