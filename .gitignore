@@ -9,3 +9,9 @@ coverage/
 .opencode/
 .idea/
 *.tsbuildinfo
+# Playwright artifacts (см. тикет #34 → Wave C карты #26):
+# `playwright-report/` — HTML-отчёт; `test-results/` — JUnit/xUnit и per-test;
+# `blob-report/` — внутренний кэш trace'ов для `trace: "on-first-retry"`.
+playwright-report/
+test-results/
+blob-report/

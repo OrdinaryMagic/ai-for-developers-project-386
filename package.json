@@ -21,7 +21,10 @@
     "typecheck:web": "npm --prefix web run typecheck",
     "lint:web": "npm --prefix web run lint",
     "test:web": "npm --prefix web run test",
-    "gen:sdk": "mise run gen:sdk"
+    "gen:sdk": "mise run gen:sdk",
+    "test:e2e": "playwright test",
+    "test:e2e:install": "playwright install --with-deps chromium",
+    "test:e2e:headed": "playwright test --headed"
   },
   "dependencies": {
     "@fastify/sensible": "^6.0.7",
@@ -35,6 +38,7 @@
   "devDependencies": {
     "@commitlint/cli": "^21.2.4",
     "@commitlint/config-conventional": "^21.2.4",
+    "@playwright/test": "^1.49.0",
     "@types/js-yaml": "^4.0.9",
     "@types/luxon": "^3.7.6",
     "@types/node": "^26.6.6",
