@@ -1,5 +1,7 @@
 import { Route, Routes } from "react-router-dom";
 
+import { BookingsPage } from "@/features/owner/bookings";
+
 export default function App() {
   return (
     <Routes>
@@ -11,6 +13,7 @@ export default function App() {
           </div>
         }
       />
+      <Route path="/admin/bookings" element={<BookingsPage />} />
     </Routes>
   );
 }
