@@ -3,6 +3,7 @@ import { DateTime } from "luxon";
 import type { OwnerConfig } from "../../src/config/owner.js";
 import { MeetingTypeStore } from "../../src/store/meeting-type-store.js";
 import { BookingStore } from "../../src/store/booking-store.js";
+import type { MeetingType } from "../../src/types.js";
 
 const tz = "Europe/Moscow";
 const cfg: OwnerConfig = {
@@ -22,9 +23,20 @@ const iso = (year: number, month: number, day: number, h: number, m: number): st
 let mtStore: MeetingTypeStore;
 let store: BookingStore;
 
+/**
+ * В тестах ниже мы всегда создаём тип с валидной (кратной) длительностью
+ * — поэтому `create` обязан вернуть успех; разворачиваем tagged union здесь,
+ * чтобы дальше код читался как пользовательский (через `MeetingType`).
+ */
+const createOk = (name: string, durationMinutes: number): MeetingType => {
+  const out = mtStore.create({ name, description: "", durationMinutes });
+  if (!out.ok) throw new Error(`test setup: create(${name}) failed: ${out.error.code}`);
+  return out.value;
+};
+
 beforeEach(() => {
-  mtStore = new MeetingTypeStore(30);
-  mtStore.create({ name: "Stand-up", description: "", durationMinutes: 30 });
+  mtStore = new MeetingTypeStore({ slotStepMinutes: 30 });
+  createOk("Stand-up", 30);
   store = new BookingStore(mtStore, cfg);
 });
 
@@ -144,7 +156,7 @@ describe("BookingStore.book error paths", () => {
   });
 
   it("возвращает OUTSIDE_WORKING_HOURS если длительность вылезает за конец", async () => {
-    mtStore.create({ name: "Long", description: "", durationMinutes: 60 });
+    createOk("Long", 60);
     const long = mtByName("Long");
     const out = await store.book(
       {
@@ -187,7 +199,7 @@ describe("BookingStore.book error paths", () => {
       },
       { now },
     );
-    const mtLong = mtStore.create({ name: "Long60", description: "", durationMinutes: 60 });
+    const mtLong = createOk("Long60", 60);
     const out = await store.book(
       {
         meetingTypeId: mtLong.id,
@@ -213,7 +225,7 @@ describe("BookingStore.book error paths", () => {
       },
       { now },
     );
-    const mtB = mtStore.create({ name: "Other", description: "", durationMinutes: 30 });
+    const mtB = createOk("Other", 30);
     const out = await store.book(
       {
         meetingTypeId: mtB.id,
@@ -372,7 +384,7 @@ describe("BookingStore.availability", () => {
       },
       { now },
     );
-    const mtB = mtStore.create({ name: "B", description: "", durationMinutes: 30 });
+    const mtB = createOk("B", 30);
     const out = await store.availability(mtB.id, now);
     expect(out.ok).toBe(true);
     if (!out.ok) return;

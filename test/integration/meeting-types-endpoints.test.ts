@@ -94,12 +94,12 @@ describe("GET /meeting-types", () => {
     await app.inject({
       method: "POST",
       url: "/meeting-types",
-      payload: { name: "A", description: "", durationMinutes: 15 },
+      payload: { name: "A", description: "", durationMinutes: 30 },
     });
     await app.inject({
       method: "POST",
       url: "/meeting-types",
-      payload: { name: "B", description: "", durationMinutes: 30 },
+      payload: { name: "B", description: "", durationMinutes: 60 },
     });
     const res = await app.inject({ method: "GET", url: "/meeting-types" });
     expect(res.statusCode).toBe(200);
@@ -107,6 +107,36 @@ describe("GET /meeting-types", () => {
     expect(body).toHaveLength(2);
     expect(body[0].name).toBe("A");
     expect(body[1].name).toBe("B");
+    expect(body[0].durationMinutes).toBe(30);
+    expect(body[1].durationMinutes).toBe(60);
+  });
+
+  it("отдаёт 422 INVALID_DURATION для длительности, не кратной slotStepMinutes", async () => {
+    app = await buildApp({ config: sampleConfig });
+    for (const durationMinutes of [15, 45, 25]) {
+      const res = await app.inject({
+        method: "POST",
+        url: "/meeting-types",
+        payload: { name: "X", description: "", durationMinutes },
+      });
+      expect(res.statusCode, `durationMinutes=${durationMinutes}`).toBe(422);
+      const body = res.json();
+      expect(body).toMatchObject({ statusCode: 422, code: "INVALID_DURATION" });
+      expect(typeof body.message).toBe("string");
+      expect(body.message.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("INVALID_DURATION-отказ не сохраняет тип в стор", async () => {
+    app = await buildApp({ config: sampleConfig });
+    const bad = await app.inject({
+      method: "POST",
+      url: "/meeting-types",
+      payload: { name: "Bad", description: "", durationMinutes: 15 },
+    });
+    expect(bad.statusCode).toBe(422);
+    const list = await app.inject({ method: "GET", url: "/meeting-types" });
+    expect(list.json()).toEqual([]);
   });
 });
 

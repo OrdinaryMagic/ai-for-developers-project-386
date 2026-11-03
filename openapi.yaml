@@ -259,7 +259,9 @@ components:
         durationMinutes:
           type: integer
           format: int32
-          description: Длительность встречи в минутах; v1 — должна быть кратна `slotStepMinutes`.
+          minimum: 1
+          maximum: 1440
+          description: Длительность встречи в минутах. Должна быть в [1, 1440] и кратна `slotStepMinutes` (30 по умолчанию). Не-кратное значение → 422 INVALID_DURATION.
       description: Тело запроса на создание типа встречи.
     DomainError:
       type: object
@@ -288,6 +290,7 @@ components:
         - OUTSIDE_WINDOW
         - MISMATCH_STEP
         - SLOT_TAKEN
+        - INVALID_DURATION
       description: Стабильные коды доменных ошибок v1. Клиентский SDK разбирает их напрямую, без парсинга `message`.
     MeetingType:
       type: object
@@ -312,7 +315,9 @@ components:
         durationMinutes:
           type: integer
           format: int32
-          description: Длительность встречи в минутах.
+          minimum: 1
+          maximum: 1440
+          description: 'Длительность встречи в минутах: положительное целое <= 1440 (сутки), кратное `slotStepMinutes`.'
       description: Категория, которую владелец делает доступной для бронирования.
     Owner:
       type: object

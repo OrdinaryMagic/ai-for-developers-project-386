@@ -16,6 +16,9 @@ enum DomainErrorCode {
 
   @doc("Слот уже занят другим (или тем же) бронированием.")
   SlotTaken: "SLOT_TAKEN",
+
+  @doc("Длительность типа встречи не кратна `slotStepMinutes` (HTTP 422).")
+  InvalidDuration: "INVALID_DURATION",
 }
 
 @doc("Тело ответа с доменной ошибкой.")
