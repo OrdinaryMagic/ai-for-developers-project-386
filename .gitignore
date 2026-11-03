@@ -8,3 +8,4 @@ coverage/
 .mise.local.toml
 .opencode/
 .idea/
+*.tsbuildinfo
