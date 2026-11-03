@@ -150,3 +150,78 @@ jobs:
             test-results/
           if-no-files-found: ignore
           retention-days: 14
+
+  # Cart #42 / ticket #46 — билдим Dockerfile-образ на каждый push и
+  # прогоняем smoke-чек против поднятого контейнера. Это страховка от
+  # drift'а между `npm run build` (на котором стоит `mise run check`) и
+  # реальным образом: `tsc` компилирует dist/, но только в Docker
+  # срабатывают runtime ENV'и (`HOST=0.0.0.0`, prod-only deps,
+  # `CMD ["node", "dist/server.js"]`).
+  #
+  # `needs: check` (без `: e2e`) — намеренно: e2e флакает на браузерах,
+  # и docker-job должен при этом всё равно бежать, чтобы catching'ить
+  # поломки Dockerfile отдельно от catching'а поломок Playwright.
+  docker:
+    name: Build Docker image + smoke test
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      # mise ставит те же тулзы, что и в check/e2e ([tools] в mise.toml:
+      # node 22, hk, commitlint). Кэш jdx/mise-action переиспользует
+      # слой установки инструментов между job'ами.
+      - uses: jdx/mise-action@v5
+        with:
+          cache: true
+          install_args: ""
+
+      # BuildKit ≥ 23.0 даёт нам inline cache и `load` через buildx. GH
+      # Actions runner уже имеет buildx-демон под капотом — этот step
+      # переключает на него.
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Билдим образ из root Dockerfile. Тег `booking-api:ci` — internal,
+      # в registry не пушим (Deploy — отдельная карта #52). `cache-from`
+      # и `cache-to: type=gha,mode=max` — это GitHub Actions layer cache
+      # (скрытый GHA-volume): холодный первый push ~2 мин; с прогретым
+      # кэшем — инкрементальный за ~10–30 с.
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: booking-api:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Поднимаем контейнер в фоне на фиксированном 3030. `--env PORT=3030`
+      # перебивает `ENV PORT=3000` из Dockerfile; `--publish 3030:3030`
+      # биндит порт loopback'ом (без `0.0.0.0`-экспозиции в общую сеть
+      # runner'а). После старта — цикл поллинга `/health` до 30 с, потом
+      # основные smoke-curl'ы. `curl -fsS` падает на non-2xx, поэтому
+      # на 5xx / connection refused задача падает без отдельного `set -e`.
+      - name: Run container and smoke-test
+        run: |
+          docker run --name booking-api-ci \
+            --detach \
+            --env PORT=3030 \
+            --publish 3030:3030 \
+            booking-api:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3030/health > /dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:3030/health | tee /tmp/health.json
+          curl -fsS http://127.0.0.1:3030/ | tee /tmp/root.json
+
+      # Чистим контейнер на любом исходе задачи — даже если smoke-curl
+      # упал и job красится красным. `|| true` гасит ненулевой exit,
+      # чтобы шаг cleanup никогда не маскировал настоящую ошибку.
+      - name: Cleanup
+        if: always()
+        run: docker rm -f booking-api-ci || true
