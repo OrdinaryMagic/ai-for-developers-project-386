@@ -1,26 +1,23 @@
-# Google release-please action — see config in release-please-config.json and
-# version snapshot in .github/release-please-manifest.json.
+# Google release-please action — see config in release-please-config.json
+# and version snapshot in .github/release-please-manifest.json.
 #
-# Two triggers:
-#   - push to `main`       — each merge into main re-runs release-please,
-#                            which opens/updates the Release PR or (after a
-#                            Release PR merge) creates the git tag + GitHub
-#                            Release.
-#   - workflow_run on the  — secondary trigger that makes the workflow also
-#     release-please           re-enter when its own run finishes. The job
-#     workflow completion    `if:` below filters out self-referential events
-#                            so this never produces a run loop.
+# Trigger: push to `main`. Each merge into main re-runs release-please,
+# which opens or updates the Release PR. After the Release PR is merged,
+# the next push to main carries the new version commit and release-please
+# tags it + creates the GitHub Release.
+#
+# We removed the secondary `workflow_run` self-trigger because the first
+# run after merge of PR #23 (1 push to main) completed with 0 jobs and
+# failure (run 41728610838 in this repo) — GitHub Actions' self-loop
+# detector saw the workflow name listed in its own `workflow_run.workflows`
+# and aborted before any job was scheduled. Push-only trigger is the
+# canonical setup for release-please-action and is sufficient.
 name: release-please
 
 on:
   push:
     branches:
       - main
-  workflow_run:
-    workflows:
-      - release-please
-    types:
-      - completed
 
 # release-please creates git tags, the GitHub Release, the Release PR and
 # its label/comment. Both write scopes are required.
@@ -30,17 +27,6 @@ permissions:
 
 jobs:
   release-please:
-    # Skip workflow_run events whose origin was itself a workflow_run (i.e.
-    # propagated from our own previous runs). `push` origin events are
-    # legitimate re-entries; external `pull_request` origin events are kept
-    # future-proof (none exist today).
-    if: >-
-      github.event_name == 'push' ||
-      (
-        github.event_name == 'workflow_run' &&
-        github.event.workflow_run.event != 'workflow_run' &&
-        github.event.workflow_run.conclusion == 'success'
-      )
     runs-on: ubuntu-latest
     steps:
       - uses: googleapis/release-please-action@v5
