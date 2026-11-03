@@ -45,7 +45,7 @@ function parsePositiveInt(name: string, raw: string | undefined, fallback: numbe
  * умолчанию `process.env`). Бросает, если значения некорректны (формат
  * `HH:MM`, неизвестная TZ, не-положительные числа).
  *
- * Значения по умолчанию — из Q1/Q1.1/Q1.2/Q2 (`name=Demo Owner`,
+ * Значения по умолчанию — из Configuration (см. GLOSSARY.md): (`name=Demo Owner`,
  * `timezone=Europe/Moscow`, `windowDays=14`, `slotStepMinutes=30`,
  * `workingHours=09:00–18:00`).
  */

@@ -5,7 +5,7 @@ import { DateTime } from "luxon";
  * `hour/minute/second/millisecond` = 0. `start` всегда — 00:00 текущего дня в TZ.
  *
  * Для `days = 14` окно включает сегодня и ещё 13 календарных дней вперёд (т.е.
- * 14 точек старта, не 14 интервалов) — см. Q2 (Q1+Q11+S16 в глоссарии).
+ * 14 точек старта, не 14 интервалов).
  */
 export interface Window {
   start: DateTime;
