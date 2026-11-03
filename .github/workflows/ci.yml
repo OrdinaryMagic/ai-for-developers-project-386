@@ -29,6 +29,22 @@ jobs:
           cache: true
           install_args: ""
 
+      # Cart #42 / ticket #49 — сканируем историю репо на secret'ы
+      # ДО всех остальных проверок, чтобы утечка токенов была caught
+      # раньше regeneration-шагов, которые могут промаскировать fail-fast.
+      #
+      # Action `gitleaks/gitleaks-action@v2` (см. https://github.com/gitleaks/gitleaks-action)
+      # оборачивает released binary gitleaks (8.18.4 совпадает с pin в
+      # mise.toml/hk.pkl после cart-#42 wave-2). Конфиг читается из
+      # `.gitleaks.toml` автоматически (см. тикет #47).
+      #
+      # `upload: false` потому что Code Scanning / SARIF upload ещё не
+      # включены — research notes §5 рекомендуют opt-in позже.
+      - name: Scan repo for secrets (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       # TypeSpec → OpenAPI регенерируется перед всеми проверками. Если
       # закоммиченный openapi.yaml отличается от того, что генерируется из
       # spec/*.tsp, CI падает — значит, кто-то отредактировал openapi.yaml
