@@ -134,7 +134,7 @@ Frontend и end-to-end тесты — отдельная итерация кар
 
 - `npm run dev:web` — Vite dev-сервер на `127.0.0.1:5173`. Ожидается запущенный backend на `127.0.0.1:3000` (`make dev`); Vite проксирует `/api/*` на backend, так что из браузера все запросы идут на тот же origin и CORS не нужен.
 - `npm run build:web` — Vite-сборка; результат — статические ассеты в `web/dist/`.
-- `npm run gen:sdk` — регенерировать `web/src/api/sdk.ts` из `openapi.yaml` (генератор `@hey-api/openapi-ts`, тикет #29). Прогон обязателен после любой правки `spec/*.tsp` и после изменения `openapi.yaml` релизом — см. AGENTS.md rule #9.
+- `npm run gen:sdk` — регенерировать `web/src/api/sdk.ts` из `openapi.yaml` (генератор `openapi-typescript@7.13.0`, тикет #29). Прогон обязателен после любой правки `spec/*.tsp` и после изменения `openapi.yaml` релизом — см. AGENTS.md rule #9.
 - `npm run test:e2e` — Playwright end-to-end против реального Fastify-сервера (Wave C, тикет #34). До появления команды она не зарегистрирована в `package.json`.
 - `npm run test:e2e:install` — `npx playwright install --with-deps chromium`, разовая установка браузера для e2e.
 

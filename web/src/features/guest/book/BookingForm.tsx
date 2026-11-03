@@ -132,15 +132,16 @@ export function BookingForm({ meetingTypeId, slot, onBooked, onCancel }: Booking
         </div>
 
         {showDomainBanner && (
-          <div
-            data-testid={`booking-error-${state.error.code.toLowerCase().replace(/_/g, "-")}`}
-            role="alert"
-            className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm"
-          >
-            <p className="font-medium text-destructive">Не удалось создать бронь.</p>
-            <p className="text-muted-foreground">
-              {BOOKING_ERROR_MESSAGES[state.error.code] ?? state.error.message}
-            </p>
+          <div data-testid="booking-error" role="alert">
+            <div
+              data-testid={`booking-error-${state.error.code.toLowerCase().replace(/_/g, "-")}`}
+              className="rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm"
+            >
+              <p className="font-medium text-destructive">Не удалось создать бронь.</p>
+              <p className="text-muted-foreground">
+                {BOOKING_ERROR_MESSAGES[state.error.code] ?? state.error.message}
+              </p>
+            </div>
           </div>
         )}
 
