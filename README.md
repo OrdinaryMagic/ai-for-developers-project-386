@@ -231,14 +231,18 @@ Production-конфигурация и секреты живут **вне реп
   `NODE_ENV` — production-значения). Секретов в шаблоне нет: ни одно из этих
   значений секретом не является. Файлов `.env` / `.env.production` с реальными
   значениями в репозитории нет и быть не должно (оба в `.gitignore`).
-- **Платформа — Fly.io** ([ADR-0004](docs/adr/0004-hosting-platform.md)):
-  несекретное (`PORT`, `HOST`, `NODE_ENV`) — в `fly.toml [env]` (тикет #54);
-  секреты — только через `fly secrets set` или dashboard Fly, значение секрета
+- **Платформа — Railway.io** ([ADR-0005](docs/adr/0005-hosting-platform-railway.md)):
+  несекретное (`HOST`, `NODE_ENV` и публичные `OWNER_*`) — в блоке `env` файла
+  [`.railway/railway.ts`](.railway/railway.ts) (тикет #54); `PORT` Railway
+  подставляет сам.
+- **Секретов в v1 нет.** `OWNER_*` — не секреты: `GET /config` отдаёт их
+  анонимно, «секретность» им ничего не даёт. Механизм для будущих секретов —
+  `railway variable set` и sealed variables на платформе; значение секрета
   нельзя прочитать обратно.
-- **Ротация:** `fly secrets set` → редеплой → smoke-проверка (`GET /health`,
+- **Ротация:** `railway variable set` → редеплой → smoke-проверка (`GET /health`,
   `GET /config`, `GET /meeting-types`). При утечке — смена значения, редеплой и
   инвалидация всего, что выдавалось на старом значении.
-- **Учтите:** `fly secrets set` перезапускает Machines, а значит стирает
+- **Учтите:** смена переменных перезапускает реплику, а значит стирает
   in-memory store ([ADR-0001](docs/adr/0001-in-memory-store-with-restart-reset.md)).
   Смена секрета — операция в окне, где записок мало.
 
