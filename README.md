@@ -285,7 +285,15 @@ opencode mcp list
 2. `fly secrets set OWNER_NAME=… …` — секреты живут вне репозитория, runbook:
    [Secrets](docs/agents/production-secrets.md).
 3. `fly deploy` — build из корневого `Dockerfile`, конфиг — `fly.toml`.
-4. `fly scale count 1` — ровно один инстанс (верхняя граница — в `fly.toml`).
+4. `fly scale count 1 --max-per-region 1` — верхняя граница инстансов: ровно
+   одна машина. Границу задаёт runtime-команда: в схеме `fly.toml` у Fly нет
+   ключа `max_machines_running`, поэтому в конфиге зафиксирован только минимум
+   (`min_machines_running = 1`).
+   **Не масштабируйте больше одной машины:** state живёт в памяти процесса, а
+   записи сериализуются одним in-process мьютексом — второй инстанс ломает
+   single-writer-контракт и рассинхронизирует данные
+   ([ADR-0001](docs/adr/0001-in-memory-store-with-restart-reset.md),
+   [ADR-0002](docs/adr/0002-single-writer-in-memory-store.md)).
 5. `scripts/production-smoke.sh https://booking-api.fly.dev` — post-deploy
    smoke (тикет #57): скрипт выводит тот же канонический URL из `fly.toml`.
 

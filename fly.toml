@@ -10,7 +10,9 @@
 #   - [env] — только несекретные значения, секреты через `fly secrets set` (#55);
 #   - health-check `GET /health` (эндпоинт есть в src/routes/health.ts);
 #   - single primary region `iad` (Ashburn) — multi-region вне scope;
-#   - min/max инстансов 1/1 — scale-to-zero вне scope по AC #54;
+#   - min 1 инстанс (min_machines_running) и scale-to-zero вне scope по AC #54;
+#     верхняя граница 1 — runtime-командой `fly scale count 1 --max-per-region 1`
+#     (в схеме fly.toml у Fly нет ключа max_machines_running — см. конец файла);
 #   - ресурсы shared-cpu-1x / 256MB RAM (≤ 1GB по AC);
 #   - HTTP→HTTPS redirect (`force_https = true` в [http_service]) — тикет #56.
 #
@@ -18,7 +20,7 @@
 #   1) fly apps create booking-api        # имя должно быть уникальным на fly.io
 #   2) fly secrets set OWNER_NAME=… …      # секреты — вне репо, см. #55
 #   3) fly deploy                          # build из Dockerfile + запуск 1 машины
-#   4) fly scale count 1                   # верхняя граница: ровно 1 машина
+#   4) fly scale count 1 --max-per-region 1   # верхняя граница: ровно 1 машина
 #   5) scripts/production-smoke.sh https://<host>   # post-deploy smoke, см. #57
 #   6) fly certs add <domain>             # домен + TLS-сертификат, см. #56
 #
@@ -58,7 +60,9 @@ force_https = true
 # Машина поднимается сама, если её остановили.
 auto_start_machines = true
 # AC #54: scale-to-zero вне scope — Fly Proxy никогда не останавливает машину
-# по простою. Вместе с min_machines_running = 1 это даёт «ровно 1 инстанс».
+# по простою. Вместе с min_machines_running = 1 это даёт «минимум 1 инстанс».
+# Верхнюю границу (максимум 1) конфиг не задаёт — см. комментарий в конце
+# файла: граница живёт в runtime-команде `fly scale count`.
 auto_stop_machines = "off"
 min_machines_running = 1
 
@@ -86,9 +90,15 @@ strategy = "rolling"
 # (проверено по docs.fly.io/reference/configuration и исходникам flyctl —
 # internal/appconfig/service.go). Верхняя граница задаётся runtime-командой:
 #
-#   fly scale count 1
+#   fly scale count 1 --max-per-region 1
 #
-# и сохраняется при последующих `fly deploy` (docs.fly.io/scaling: «the
-# resulting scale is preserved by fly deploy»). Горизонтальный autoscale
-# исключён и структурно: in-memory BookingStore не переживает multi-instance
-# (ADR-0001, ADR-0002).
+# Флаг `--max-per-region` фиксирует «не больше одной машины на регион»: без
+# него `fly scale count 3` (или горизонтальный autoscale) тихо ломает
+# single-writer-контракт. Масштаб сохраняется при последующих `fly deploy`
+# (docs.fly.io/scaling: «the resulting scale is preserved by fly deploy»).
+# Горизонтальный autoscale исключён и структурно: in-memory BookingStore не
+# переживает multi-instance (ADR-0001, ADR-0002).
+#
+# Та же команда записана в README (раздел «Production deploy») и в runbook'е
+# docs/agents/production-dns-tls.md — drift-тест test/fly-toml.test.ts
+# проверяет, что все три места совпадают.

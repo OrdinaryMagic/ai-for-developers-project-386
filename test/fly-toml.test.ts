@@ -3,8 +3,9 @@
  *
  * Тест читает `fly.toml` из корня репозитория и проверяет acceptance criteria
  * тикета #54: build из корневого Dockerfile, PORT=3000 через env, health-check
- * `GET /health`, single primary region, min/max инстансов 1/1, RAM ≤ 1GB.
- * Плюс — что ADR-0004 ссылается на этот файл (второй AC тикета).
+ * `GET /health`, single primary region, min 1 инстанс в конфиге (max 1 — это
+ * runtime-команда, и она должна совпадать в `fly.toml`, README и runbook'е),
+ * RAM ≤ 1GB. Плюс — что ADR-0004 ссылается на этот файл (второй AC тикета).
  *
  * Тикет #56 добавляет сюда два кейса: HTTP→HTTPS redirect (`force_https` в
  * `[http_service]`) и наличие runbook'а DNS/TLS со ссылками на смежные
@@ -12,11 +13,12 @@
  *
  * TOML-парсера в зависимостях нет (новые deps не добавляем), поэтому разбор
  * минимальный, построчный: секции + key/value. Этого хватает, потому что
- * формат `fly.toml` в этом репозитории фиксирован этим же тестом. Общий
- * помощник разбора — в `test/helpers/toml.ts`.
+ * формат `fly.toml` в этом репозитории фиксирован этим же тестом. Общие
+ * помощники разбора — в `test/helpers/toml.ts` и `test/helpers/readme.ts`.
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
+import { readmeSection } from "./helpers/readme.js";
 import { stripComment, unquote } from "./helpers/toml.js";
 
 const repoRoot = new URL("../", import.meta.url);
@@ -109,6 +111,40 @@ const FLY_REGION_CODES = [
   "yul",
 ];
 
+/**
+ * Runtime-команда, задающая верхнюю границу инстансов.
+ *
+ * В `fly.toml` такого ключа нет (у Fly нет `max_machines_running`), поэтому
+ * граница 1/1 живёт только в команде `fly scale count`. Флаг `--max-per-region`
+ * фиксирует «не больше одной машины на регион» — без него `fly scale count 3`
+ * (или горизонтальный autoscale) тихо ломает single-writer-контракт
+ * (ADR-0001, ADR-0002).
+ */
+const MAX_INSTANCES_COMMAND = "fly scale count 1 --max-per-region 1";
+
+/**
+ * Команды `fly scale count …`, записанные в позиции команды — в начале строки
+ * после необязательных маркеров (номер шага, `-`, `#`-комментарий, backtick).
+ *
+ * Именно так выглядит процедура в `fly.toml`, README и runbook'е. Упоминания в
+ * прозе («`fly scale count 3` запустит несколько машин») — контрапримеры, а не
+ * инструкция, поэтому они не попадают в выборку.
+ */
+function scaleCountCommands(text: string): string[] {
+  const commands: string[] = [];
+  for (const rawLine of text.split("\n")) {
+    const line = rawLine
+      .trim()
+      .replace(/^#+\s*/, "")
+      .replace(/^[-*]\s+/, "")
+      .replace(/^\d+[.)]\s+/, "")
+      .replace(/^`+/, "");
+    const match = /^fly scale count \d+(?: --max-per-region \d+)?/.exec(line);
+    if (match !== null) commands.push(match[0]);
+  }
+  return commands;
+}
+
 describe("fly.toml — production deploy config (#54)", () => {
   it("собирает image из корневого Dockerfile", () => {
     const doc = parseToml(readRepoFile("fly.toml"));
@@ -184,10 +220,32 @@ describe("fly.toml — production deploy config (#54)", () => {
     // "off" = Fly Proxy никогда не останавливает машины по простою (нет scale-to-zero).
     expect(unquote(httpService.auto_stop_machines)).toBe("off");
     expect(unquote(httpService.auto_start_machines)).toBe("true");
-    // У Fly в fly.toml нет ключа max_machines_running — верхняя граница 1/1
-    // выражается командой `fly scale count 1` (см. комментарий в fly.toml).
-    expect(httpService.max_machines_running).toBeUndefined();
-    expect(readRepoFile("fly.toml")).toMatch(/fly scale count 1\b/);
+
+    // Верхней границы в конфиге нет: в схеме fly.toml у Fly нет ключа
+    // max_machines_running. Границу задаёт runtime-команда — и она обязана
+    // быть записана одинаково во всех трёх местах (конфиг, README, runbook),
+    // иначе инструкции владельца релиза разойдутся.
+    const places: ReadonlyArray<readonly [string, string]> = [
+      ["fly.toml", readRepoFile("fly.toml")],
+      ["README «Production deploy»", readmeSection(readRepoFile("README.md"), "Production deploy")],
+      ["docs/agents/production-dns-tls.md", readRepoFile("docs/agents/production-dns-tls.md")],
+    ];
+
+    for (const [name, text] of places) {
+      const commands = [...new Set(scaleCountCommands(text))];
+      expect(commands, `команда верхней границы инстансов в ${name}`).toEqual([
+        MAX_INSTANCES_COMMAND,
+      ]);
+    }
+  });
+
+  it("README предупреждает: масштабирование >1 ломает single-writer", () => {
+    const section = readmeSection(readRepoFile("README.md"), "Production deploy");
+
+    // In-memory store и single-writer (ADR-0001/ADR-0002) рассчитаны на один
+    // процесс — верхняя граница 1 инстанса обязана быть видна в инструкции.
+    expect(section).toContain("ADR-0001");
+    expect(section).toContain("ADR-0002");
   });
 
   it("ресурсы: shared-cpu-1x и RAM ≤ 1GB", () => {

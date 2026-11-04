@@ -41,6 +41,9 @@ fly certs check booking.example.com
 
 # 5. HTTP→HTTPS redirect — ключ force_https = true в fly.toml → fly deploy.
 
+# 5a. Верхняя граница инстансов — runtime-командой (см. шаг 5a):
+fly scale count 1 --max-per-region 1
+
 # 6. Проверки после provisioning (AC #56) — см. шаг 6.
 curl -sS -o /dev/null -w '%{http_code}\n' https://booking.example.com/          # 200
 curl -sS https://booking.example.com/health                                     # {"status":"ok"}
@@ -208,6 +211,26 @@ fly deploy
 Оговорка: `force_https = true` несовместим с Flycast — внутренняя сеть Flycast
 HTTP-only, и для неё ключ должен быть `false`. booking-api публикуется наружу и
 Flycast не использует, поэтому здесь `true` — корректное значение.
+
+## Шаг 5a. Верхняя граница инстансов (одна машина)
+
+Шаг 4 в оглавлении `fly.toml` (комментарий в начале файла) — верхняя граница
+инстансов.
+
+В `fly.toml` у Fly нет ключа `max_machines_running` (в конфиге зафиксирован
+только минимум: `min_machines_running = 1`), поэтому границу задаёт
+runtime-команда:
+
+```bash
+fly scale count 1 --max-per-region 1
+```
+
+Флаг `--max-per-region` нужен, чтобы «не больше одной машины на регион» было
+ограничением, а не только текущим значением: `fly scale count 3` (или
+горизонтальный autoscale) запустит несколько машин и сломает single-writer
+контракт — state живёт в памяти процесса
+([ADR-0001](../adr/0001-in-memory-store-with-restart-reset.md),
+[ADR-0002](../adr/0002-single-writer-in-memory-store.md)).
 
 ## Шаг 6. Проверки после provisioning
 
