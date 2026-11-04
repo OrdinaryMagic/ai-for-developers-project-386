@@ -220,6 +220,25 @@ pre-commit hook ловит утечку до `git push`, CI ловит то, ч�
 работает только в staging area. Для проверки CI-слоя: push в любую
 ветку и `gh run watch <run-id>`.
 
+## Secrets
+
+Production-конфигурация и секреты живут **вне репозитория**. Полный runbook —
+[docs/agents/production-secrets.md](docs/agents/production-secrets.md).
+
+- **Шаблон env-контракта** — [`.env.example`](.env.example) в корне репозитория:
+  форма без значений. Файлов `.env` / `.env.production` с реальными значениями
+  в репозитории нет и быть не должно (оба в `.gitignore`).
+- **Платформа — Fly.io** ([ADR-0004](docs/adr/0004-hosting-platform.md)):
+  несекретное (`PORT`, `HOST`, `NODE_ENV`) — в `fly.toml [env]` (тикет #54);
+  секреты — только через `fly secrets set` или dashboard Fly, значение секрета
+  нельзя прочитать обратно.
+- **Ротация:** `fly secrets set` → редеплой → smoke-проверка (`GET /health`,
+  `GET /config`, `GET /meeting-types`). При утечке — смена значения, редеплой и
+  инвалидация всего, что выдавалось на старом значении.
+- **Учтите:** `fly secrets set` перезапускает Machines, а значит стирает
+  in-memory store ([ADR-0001](docs/adr/0001-in-memory-store-with-restart-reset.md)).
+  Смена секрета — операция в окне, где записок мало.
+
 ## UI / E2E
 
 Frontend и end-to-end тесты — отдельная итерация карты #26 («Booking API v1 — UI & E2E»). Этот раздел собирает команды и правила для фронтенд-инженеров; сам код появится в последующих тикетах той же карты.
