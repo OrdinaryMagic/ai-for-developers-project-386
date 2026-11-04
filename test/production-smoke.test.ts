@@ -16,8 +16,10 @@ import {
   accessSync,
   chmodSync,
   constants,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -71,9 +73,28 @@ function readCanonicalUrl(): string {
 
 let app: FastifyInstance | null = null;
 let liveBaseUrl = "";
+let staticRoot = "";
+
+/**
+ * Фикстура «собранного фронтенда»: оболочка SPA + один ассет.
+ *
+ * Smoke-проверяет, что задеплоенный сервис отдаёт UI, поэтому тест не может
+ * полагаться на локальный `web/dist` (в CI его нет) — собираем минимальный
+ * каталог статики во временной папке.
+ */
+beforeAll(() => {
+  staticRoot = mkdtempSync(join(tmpdir(), "production-smoke-static-"));
+  mkdirSync(join(staticRoot, "assets"));
+  writeFileSync(
+    join(staticRoot, "index.html"),
+    '<!doctype html><html lang="en"><body><div id="root"></div></body></html>',
+    "utf8",
+  );
+  writeFileSync(join(staticRoot, "assets", "app.js"), "console.log('app');\n", "utf8");
+});
 
 beforeAll(async () => {
-  app = await buildApp();
+  app = await buildApp({ staticRoot });
   await app.listen({ port: 0, host: "127.0.0.1" });
   const address = app.server.address();
   if (address === null || typeof address === "string") {
@@ -87,6 +108,7 @@ afterAll(async () => {
     await app.close();
     app = null;
   }
+  rmSync(staticRoot, { recursive: true, force: true });
 });
 
 describe("контракт scripts/production-smoke.sh", () => {
@@ -95,12 +117,19 @@ describe("контракт scripts/production-smoke.sh", () => {
     expect(() => accessSync(SCRIPT_PATH, constants.X_OK)).not.toThrow();
   });
 
-  it("в скрипте зафиксированы все четыре проверяемых пути", () => {
+  it("в скрипте зафиксированы все проверяемые пути", () => {
     const source = readFileSync(SCRIPT_PATH, "utf8");
 
-    for (const path of ["/", "/health", "/config", "/meeting-types"]) {
+    for (const path of ["/", "/health", "/config", "/meeting-types", "/admin/event-types"]) {
       expect(source, `в скрипте нет пути ${path}`).toContain(`"${path}"`);
     }
+  });
+
+  it("скрипт проверяет UI: Accept-заголовок и режим html-валидатора", () => {
+    const source = readFileSync(SCRIPT_PATH, "utf8");
+
+    expect(source).toContain("BROWSER_ACCEPT");
+    expect(source).toContain('"html"');
   });
 });
 
@@ -113,10 +142,10 @@ describe("smoke против живого приложения", () => {
     expect(run.output).not.toContain("FAIL");
   });
 
-  it("проверяет все четыре эндпоинта", async () => {
+  it("проверяет все шесть эндпоинтов", async () => {
     const run = await runSmoke([liveBaseUrl]);
 
-    for (const path of ["/", "/health", "/config", "/meeting-types"]) {
+    for (const path of ["/", "/health", "/config", "/meeting-types", "/admin/event-types"]) {
       expect(run.output, `эндпоинт ${path} не проверен`).toContain(path);
     }
   });
@@ -142,7 +171,7 @@ describe("smoke против живого приложения", () => {
   it("непустой /meeting-types — WARNING, а не падение", async () => {
     // Отдельный инстанс с одним типом встречи: на инстансе с данными
     // непустой массив — норма, smoke падать не должен.
-    const seeded = await buildApp();
+    const seeded = await buildApp({ staticRoot });
     await seeded.inject({
       method: "POST",
       url: "/meeting-types",

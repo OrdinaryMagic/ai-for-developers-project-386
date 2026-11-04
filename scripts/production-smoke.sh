@@ -23,11 +23,19 @@
 #   GET "/health"        → 200 and the body contains "status":"ok"
 #   GET "/config"        → 200 and the body is valid JSON
 #   GET "/meeting-types" → 200 and the body is a valid JSON array
+#   GET "/"              → 200 and content-type is text/html (Accept: text/html)
+#   GET "/admin/event-types" → 200 and content-type is text/html (Accept: text/html)
 #
 #   Note on "/meeting-types": an EMPTY array [] is expected on a fresh
 #   deploy; a NON-empty array is only a WARNING (an instance that already
 #   holds data is perfectly normal) and never fails the smoke. A non-array
 #   body, invalid JSON or a non-2xx status are FAILs.
+#
+#   Note on the last two checks: the service serves BOTH the API and the
+#   built SPA on the same domain (ADR-0006). A browser (Accept: text/html)
+#   must get the app shell, not the JSON API — these two checks prove the
+#   deployed image really contains the frontend and that client-side routes
+#   fall back to the shell instead of 404.
 #
 # Retry loop (safety net): during a rolling deploy the Railway edge may briefly
 # answer 502 while the old replica is drained and the new one is starting, so
@@ -55,6 +63,10 @@ RETRIES="${SMOKE_RETRIES:-5}"
 RETRY_DELAY="${SMOKE_RETRY_DELAY:-3}"
 CURL_TIMEOUT="${SMOKE_CURL_TIMEOUT:-10}"
 
+# Заголовок `Accept` браузерной навигации: по нему сервис отдаёт оболочку SPA
+# вместо JSON-API (ADR-0006).
+BROWSER_ACCEPT="text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+
 TMP_DIR=""
 FAILED_CHECKS=()
 WARNING_CHECKS=()
@@ -64,9 +76,10 @@ CHECKS_TOTAL=0
 #   health — the body must contain "status":"ok"
 #   json   — the body must be valid JSON
 #   array  — the body must be a valid JSON array (non-empty → warning, exit 2)
+#   html   — the response content-type must be text/html (the SPA shell)
 NODE_VALIDATOR='import { readFileSync } from "node:fs";
 
-const [mode, file] = process.argv.slice(1);
+const [mode, file, contentType] = process.argv.slice(1);
 const raw = readFileSync(file, "utf8");
 const compact = raw.replace(/\s+/g, "");
 
@@ -117,6 +130,17 @@ if (mode === "array") {
     process.exit(2);
   }
   console.log("body is a valid JSON array (empty)");
+  process.exit(0);
+}
+
+if (mode === "html") {
+  if (!/text\/html/i.test(contentType ?? "")) {
+    fail("content-type is not text/html: " + JSON.stringify(contentType ?? ""));
+  }
+  if (raw.trim() === "") {
+    fail("body is empty");
+  }
+  console.log("content-type is text/html");
   process.exit(0);
 }
 
@@ -178,9 +202,9 @@ process.stdout.write(url);
 ' "$1"
 }
 
-# validate_body <mode> <file> — exit 0 = valid, 1 = invalid, 2 = valid with warning.
+# validate_body <mode> <file> [content-type] — exit 0 = valid, 1 = invalid, 2 = valid with warning.
 validate_body() {
-  node --input-type=module -e "${NODE_VALIDATOR}" "$1" "$2"
+  node --input-type=module -e "${NODE_VALIDATOR}" "$1" "$2" "${3:-}"
 }
 
 # join_by <separator> [items...] — human-readable list for the summary.
@@ -198,19 +222,38 @@ join_by() {
   printf '%s' "${result}"
 }
 
-# check_endpoint <path> <validator-mode> <requirement>
+# check_endpoint <path> <validator-mode> <requirement> [accept-header]
 # Retries the endpoint up to ${RETRIES} times; returns 0 on success.
+#
+# Необязательный четвёртый аргумент — значение заголовка `Accept`: для
+# UI-проверок он нужен, чтобы запрос выглядел как браузерная навигация
+# (`Accept: text/html`), а не как API-клиент.
 check_endpoint() {
   local path="$1"
   local mode="$2"
   local requirement="$3"
+  local accept="${4:-}"
 
   local attempt=0
   local status=""
+  local http_status=""
+  local content_type=""
   local reason=""
   local verdict=0
   local body_file="${TMP_DIR}/body"
   local curl_err_file="${TMP_DIR}/curl.err"
+  local -a curl_args
+
+  curl_args=(
+    --silent
+    --show-error
+    --max-time "${CURL_TIMEOUT}"
+    --output "${body_file}"
+    --write-out '%{http_code} %{content_type}'
+  )
+  if [ -n "${accept}" ]; then
+    curl_args+=(--header "Accept: ${accept}")
+  fi
 
   CHECKS_TOTAL=$((CHECKS_TOTAL + 1))
 
@@ -220,12 +263,12 @@ check_endpoint() {
     : >"${body_file}"
     : >"${curl_err_file}"
 
-    status="$(curl --silent --show-error --max-time "${CURL_TIMEOUT}" \
-      --output "${body_file}" --write-out '%{http_code}' \
-      "${BASE_URL}${path}" 2>"${curl_err_file}" || true)"
+    status="$(curl "${curl_args[@]}" "${BASE_URL}${path}" 2>"${curl_err_file}" || true)"
+    http_status="${status%% *}"
+    content_type="${status#* }"
 
-    if [ "${status}" = "200" ]; then
-      if reason="$(validate_body "${mode}" "${body_file}")"; then
+    if [ "${http_status}" = "200" ]; then
+      if reason="$(validate_body "${mode}" "${body_file}" "${content_type}")"; then
         verdict=0
       else
         verdict=$?
@@ -242,7 +285,7 @@ check_endpoint() {
         return 0
       fi
     else
-      reason="HTTP ${status:-000}"
+      reason="HTTP ${http_status:-000}"
       if [ -s "${curl_err_file}" ]; then
         reason="${reason} (curl: $(<"${curl_err_file}"))"
       fi
@@ -288,12 +331,16 @@ main() {
   TMP_DIR="$(mktemp -d)"
 
   echo "→ base URL: ${BASE_URL} (from ${URL_SOURCE})"
-  echo "→ checks: 4 endpoints, up to ${RETRIES} attempt(s), ${RETRY_DELAY}s between attempts"
+  echo "→ checks: 6 endpoints, up to ${RETRIES} attempt(s), ${RETRY_DELAY}s between attempts"
 
   check_endpoint "/" "none" "200 OK" || true
   check_endpoint "/health" "health" "200 OK, body contains \"status\":\"ok\"" || true
   check_endpoint "/config" "json" "200 OK, body is valid JSON" || true
   check_endpoint "/meeting-types" "array" "200 OK, body is a valid JSON array" || true
+  # UI-проверки: тот же сервис отдаёт собранный SPA (ADR-0006).
+  check_endpoint "/" "html" "200 OK, content-type is text/html (SPA shell)" "${BROWSER_ACCEPT}" || true
+  check_endpoint "/admin/event-types" "html" "200 OK, content-type is text/html (SPA route)" \
+    "${BROWSER_ACCEPT}" || true
 
   local passed=$((CHECKS_TOTAL - ${#FAILED_CHECKS[@]}))
 
