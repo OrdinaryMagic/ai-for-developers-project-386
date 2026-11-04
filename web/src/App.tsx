@@ -5,6 +5,7 @@ import { BookingsPage } from "@/features/owner/bookings";
 import HomePage from "@/features/guest/index";
 import BookPage from "@/features/guest/book/BookPage";
 import ConfirmedPage from "@/features/guest/book/ConfirmedPage";
+import { NotFoundPage } from "@/features/shared/NotFoundPage";
 
 // Owner-страница MeetingType CRUD: лениво (на этой стадии без SSR,
 // чанк не съест ничего важного для smoke-теста `/`, но держит
@@ -26,6 +27,10 @@ export default function App() {
           </Suspense>
         }
       />
+      {/* Catch-all: сервер отдаёт оболочку для любого неизвестного пути
+          (SPA-fallback, ADR-0006) — без этого маршрута страница была бы
+          пустой. */}
+      <Route path="*" element={<NotFoundPage />} />
     </Routes>
   );
 }
