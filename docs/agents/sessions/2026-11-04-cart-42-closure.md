@@ -54,7 +54,7 @@ docker run -d --name booking-api-audit --env PORT=3999 -p 127.0.0.1:3999:3999 bo
 | Документация                        | README «Docker», README «Security», AGENTS.md «Docker»                                                                                                                                                               | ✅ (после правок — см. ниже) |
 | `make check`-совместимость          | Dockerfile/CI не трогают `mise run check`; `scripts/gitleaks-smoke.sh` чистит индекс и рабочее дерево                                                                                                                | ✅                           |
 
-Прогон `gitleaks detect --source . --log-opts="--all"` по **всей** доступной истории — clean (69 коммитов по всем refs).
+Прогон `gitleaks detect --source . --log-opts="--all"` по **всей** доступной истории — clean (gitleaks: 77 commits scanned на момент финальной проверки; счётчик растёт от merge'ей, поэтому в разных прогонах отличается).
 
 ## Найденные дыры и что с ними сделано
 
@@ -71,7 +71,7 @@ docker run -d --name booking-api-audit --env PORT=3999 -p 127.0.0.1:3999:3999 bo
 1. **Research-отчёт #44 жил только на throwaway-ветке.** Тикет «Audit repo history + pick tool» был закрыт как research, но его deliverable (`docs/agents/security/secret-audit-2026-11-04.md`) существовал лишь в `origin/research/secret-audit` — вне `main`, вне `git log` обычного разработчика. Реализация (#47–#50, #59) в `main` была, а обоснование выбора инструмента — нет. Место под отчёт было запланировано с самого начала: allowlist-путь `^docs/agents/security/.*\.md$` появился в `.gitleaks.toml` ещё в #47. **Фикс**: отчёт перенесён в `main` (путь allowlist'а сработал как задумано), §8 переписан (было «Issue NOT closed»), добавлен §9 «Как это реализовано» — таблица отклонений реализации от сниппетов research-отчёта (npx→mise, `fetch-depth: 0`, `results.sarif` в `ignorePatterns`, глобальный path-allowlist вместо `[[rules]]`, `scripts/gitleaks-smoke.sh`). Отчёт **не** дублируется в README — канон по конвенции трекера лежит в Decisions so-far карты.
 2. **Squash-коммит PR #60 был пересоздан.** `55a747c` и `3c54921` — одно дерево (`ebc1cf1`), но в `main` лежит `3c54921`; `55a747c` не является предком `main`. Манифест implementation-сессии ссылался на `55a747c` ⇒ «битая» ссылка на историю. **Фикс** (`9ad852d`): SHA исправлен в манифесте карты #42 и в индексе сессий (тот же класс, что был починен для карты #52 в PR #64).
 3. **Карта #42 не закрывается авто-merge'ом.** По конвенции wayfinder (`docs/agents/issue-tracker.md`) карта — index, а не leaf: PR #60 закрыл 8 листьев через `Closes #NN`, а сама карта осталась OPEN. **Фикс**: закрытие вручную по конвенции трекера — комментарий с trace ⇒ `gh issue close 42`; тело карты обновлено (Decisions so far + Итог + пустой Frontier).
-4. **Счётчик коммитов в отчёте не сходится с `main`.** В исходном research-отчёте фигурировали 37 reachable коммитов на момент scan'а; после squash-мержей история сжимается, и в `main` на момент closure — 32 коммита (69 по всем refs). В §9 отчёта это зафиксировано явно, чтобы следующий аудит не считал расхождение утечкой.
+4. **Счётчик коммитов в отчёте не сходится с `main`.** В исходном research-отчёте фигурировали 37 reachable коммитов на момент scan'а; после squash-мержей история сжимается, и в `main` на момент closure — 32 коммита (77 по всем refs на момент финальной проверки). В §9 отчёта это зафиксировано явно, чтобы следующий аудит не считал расхождение утечкой.
 5. **Отчёт переформатирован `oxfmt`** (CI-gating): `_italic_` вместо `*italic*`, блоки кода без лишнего отступа. Содержательно не изменено — только форма, требуемая `oxfmt --check`.
 
 ## Code review findings
@@ -89,12 +89,12 @@ docker run -d --name booking-api-audit --env PORT=3999 -p 127.0.0.1:3999:3999 bo
 - **#44** — закрыт раньше в этой же сессии: комментарий-резолюция ([`issuecomment-6629640400`](https://github.com/OrdinaryMagic/ai-for-developers-project-386/issues/44#issuecomment-6629640400)) ⇒ `gh issue close 44`. Комментарий несёт trace «отчёт перенесён в `main` + рекомендации приняты в #47–#50/#59».
 - **#42** — закрыт вручную: комментарий-резолюция ⇒ `gh issue close 42`; тело обновлено (Decisions so-far дополнен, граф тикетов переведён в «delivered», Frontier — пусто, добавлен блок «Итог» со ссылкой на этот манифест).
 - Листья #43, #45, #46, #47, #48, #49, #50, #59 — CLOSED (авто-merge PR #60). **#44** — CLOSED (эта сессия). **#42** — CLOSED (эта сессия).
-- **release-please**: squash-коммит — `chore(docs)`/`chore(fix)`/`fix` ⇒ релиз не триггерится (те же классы, что в картах #42 и #52: только `feat:` тянет minor).
+- **release-please**: squash-коммиты — `chore(cart-42)` (PR #65) и `docs(sessions)` (PR #66) ⇒ релиз не триггерится (те же классы, что в картах #42 и #52: только `feat:` тянет minor).
 - **CI**: `CI` (typecheck → lint → format → test → регенерация OpenAPI/SDK), `docker`-job (build + smoke) и `hexlet-check` — success на PR #65 и на `main`.
 
 ## Open follow-ups
 
-- **CI-скан gitleaks покрывает только последний коммит.** `gitleaks/gitleaks-action@v2` по умолчанию сканирует диапазон `HEAD~1..HEAD` ⇒ коммит, обойдённый локальным хуком, ловится в том же PR, но **полная история** пересканируется только ручным прогоном. Стоит добавить отдельный full-history шаг (`gitleaks detect --log-opts="--all"`) — history маленькая (69 коммитов, ~50 мс).
+- **CI-скан gitleaks покрывает только последний коммит.** `gitleaks/gitleaks-action@v2` по умолчанию сканирует диапазон `HEAD~1..HEAD` ⇒ коммит, обойдённый локальным хуком, ловится в том же PR, но **полная история** пересканируется только ручным прогоном. Стоит добавить отдельный full-history шаг (`gitleaks detect --log-opts="--all"`) — history маленькая (77 коммитов, ~50 мс).
 - **Path-allowlist в `.gitleaks.toml` — all-or-nothing per file.** Найденный секрет, вставленный в `README.md`/`AGENTS.md`/`CHANGELOG.md`/`docs/agents/{sessions,security,adr}/*.md`, не будет найден. Осознанный компромисс (иначе CI падает на AWS-docs ключе в документации); задокументирован в самом `.gitleaks.toml`.
 - **`HEALTHCHECK` в Dockerfile** отсутствует — health-poll делает CI-job (цикл до 30 с). Для оркестраторов (Fly, k8s) нужен probe в самом образе.
 - **Non-root** закрыт в этой сессии; read-only root filesystem (`--read-only`) — кандидат в hardening-карту.
