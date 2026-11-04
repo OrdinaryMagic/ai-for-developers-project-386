@@ -19,7 +19,7 @@
 | 9   | `ci(docker): extend smoke with /meeting-types endpoint check (#46)`                       | `3ae0c91` | Fix-up code-review Spec #46                                                                |
 | 10  | `fix(security): consolidate gitleaks test-fixture paths into global allowlist (#47)`      | `8ed68a2` | Fix-up code-review Standards                                                               |
 
-После squash-merge в PR #60 (`55a747c` на `origin/main`) — 8 leaf tickets авто-закрылись: **#43, #45, #46, #47, #48, #49, #50, #59**. Parent **#42** остаётся OPEN (wayfinder-map index; не закрывается).
+После squash-merge в PR #60 (`3c54921` на `origin/main`) — 8 leaf tickets авто-закрылись: **#43, #45, #46, #47, #48, #49, #50, #59**. Parent **#42** остаётся OPEN (wayfinder-map index; не закрывается).
 
 ## Non-obvious drift
 
@@ -81,17 +81,17 @@ b. **`results.sarif` в oxfmt scope.** Action пишет SARIF report в `$GITHU
 
 ## Trace
 
-- **Squash-merge PR #60** → `55a747c` на `origin/main`.
+- **Squash-merge PR #60** → `3c54921` на `origin/main`. Squash-коммит был пересоздан через 3 минуты после первого merge'а: `55a747c` и `3c54921` — одно и то же дерево (`ebc1cf1`), но в `main` лежит `3c54921`; `55a747c` не является предком `main` (историю переписали). Канонический SHA — `3c54921` (исправлено в closure-сессии 2026-11-04, PR #65).
 - **Auto-closed** через PR body `Closes #43 #45 #46 #47 #48 #49 #50 #59`: все 8 листьев.
 - **#42 (parent wayfinder:map)** остаётся OPEN — индексная карта, не leaf.
 - **#44 (research)** остаётся OPEN — research deliverable на `origin/research/secret-audit` уже закоммичен и referenced через manifest of `docker-chart-and-tickets` session; **можно закрыть** через `gh issue close #44` в cart-closer cleanup (параллельно с #42).
-- **release-please**: поведение на этом push ещё не rendered (next push триггерит manifest на squash commit `55a747c`). Это chore-коммит (тэг по карте не feat) **minor будет skip'нут**, не увидим нового релиза.
+- **release-please**: поведение на этом push ещё не rendered (next push триггерит manifest на squash commit `3c54921`). Это chore-коммит (тэг по карте не feat) **minor будет skip'нут**, не увидим нового релиза.
 - **CI на main**: Project checks + Build Docker image + E2E Playwright + hexlet-check — все 4 green.
 
 ## Open follow-ups
 
 - **`#52` Production deployment for booking-api v1 (post-image)** уже charterед в deploy-to-tickets session. Это продолжение cart #42, не зависит прямо от merge — research-frontier сейчас `#53`. Делать когда пользователь даст `@implement-spec / 53` или эквивалент.
-- **`#42` index close-out**: можно опционально пометить как решенный archival через `gh issue close 42 --comment "Delivered: PR #60 squash as 55a747c. 8 leaves auto-closed."` — это manual arch-комментарий, не removal. Делать если пользователь просит.
+- **`#42` index close-out**: можно опционально пометить как решенный archival через `gh issue close 42 --comment "Delivered: PR #60 squash as 3c54921. 8 leaves auto-closed."` — это manual arch-комментарий, не removal. Делать если пользователь просит.
 - **`#44` research** можно параллельно закрыть.
 - **Code Scanning / SARIF upload** — research notes §5 рекомендует opt-in позже. Ticket ещё не открыт. Когда устоится pipeline — отдельная карта «Observability / SARIF».
 - **`gitleaks` version pin** — 8.18.4 фигурирует в 4 местах (.gitleaks.toml comment, mise.toml, hk.pkl comment, и action cache). При бампе версии синхронизация — manual или отдельный ADR.

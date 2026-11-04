@@ -31,6 +31,12 @@ RUN npm ci --omit=dev --no-audit --no-fund
 # Compiled output from the builder stage.
 COPY --from=builder /app/dist ./dist
 
+# Run as the unprivileged `node` user (uid 1000) that ships with the base
+# image instead of root. The app only reads /app (no file writes at runtime —
+# the store is in-memory), so the root-owned COPY'ed files stay readable
+# without a chown pass.
+USER node
+
 EXPOSE $PORT
 
 # Exec form → PID 1 = node, so `docker stop` sends SIGTERM to node directly

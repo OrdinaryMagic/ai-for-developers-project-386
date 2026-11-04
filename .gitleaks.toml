@@ -8,9 +8,33 @@ title = "booking-api gitleaks config"
 useDefault = true
 
 # --- Repo-wide ignores ---------------------------------------------
-# Commit SHAs shown in CHANGELOG.md, AGENTS.md, session manifests, ADR refs.
-# These are 7-40 char hex strings that gitleaks' default "generic" rule
-# occasionally misfires on inside backtick-quoted code blocks.
+# Path-based allowlist: gitleaks skips a finding when the file it comes
+# from matches one of these patterns.
+#
+# Why these paths and not others:
+#   - markdown docs legitimately quote the AWS-docs example key
+#     `AKIAIOSFODNN7EXAMPLE` (it documents the pre-commit smoke fixture,
+#     see `scripts/gitleaks-smoke.sh`), and gitleaks' default
+#     `aws-access-token` rule flags that literal — verified: a full-history
+#     scan without these paths reports exactly that key, 3 occurrences.
+#   - test fixtures hold synthetic JWT-shaped tokens (backend vitest specs
+#     + web Playwright specs) — the default rules flag them.
+#
+# Known limitation: a path allowlist is all-or-nothing per file — a real
+# credential pasted into one of these files would NOT be reported. Keep the
+# list as narrow as possible; prefer a precise value-based rule over
+# adding a path.
+#
+# On `regexes`: gitleaks matches allowlist regexes against the *secret
+# value* only (fragment.Secret), never against the surrounding line. So
+# line-shaped patterns like `` `[0-9a-f]{7,40}` `` or
+# `integrity": "sha512-…"` can never fire — they were dead config and
+# are gone. We deliberately do NOT allowlist bare hex strings: a 40-hex
+# secret next to a keyword such as `api_key =` is a real credential
+# shape, and blanket-allowing hex would mask exactly that. Commit SHAs
+# are safe on their own — without a credential keyword nearby, the
+# generic rule does not fire. npm `integrity` hashes are already covered
+# by gitleaks' built-in default config.
 [allowlist]
 description = "Allowlists for known-safe strings in booking-api."
 paths = [
@@ -25,11 +49,4 @@ paths = [
   # CI doesn't fire on synthetic tokens used in tests.
   '''^test/.*\.ts$''',
   '''^web/src/.*\.(test|spec)\.tsx?$''',
-]
-regexes = [
-  # Commit SHAs (full 40-hex or short 7-hex) inside backtick codeblocks.
-  '''`[0-9a-f]{7,40}`''',
-  # package-lock.json integrity hashes (sha512-base64); gitleaks already
-  # whitelists these but the explicit rule documents intent for reviewers.
-  '''integrity": "sha512-[A-Za-z0-9+/=]+"''',
 ]
