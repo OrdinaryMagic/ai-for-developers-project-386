@@ -14,7 +14,7 @@ export interface paths {
     /** @description Список предстоящих бронирований владельца. Без пагинации, ASC по `startsAt`, только будущие. */
     get: operations["Bookings_list"];
     put?: never;
-    /** @description Создать бронирование на свободный слот. Коды `SLOT_TAKEN`/`MEETING_TYPE_NOT_FOUND`/`OUTSIDE_WORKING_HOURS`/`OUTSIDE_WINDOW`/`MISMATCH_STEP` приходят в теле как `DomainError`; сервер выставляет HTTP 409/404/422 на уровне реализации. Идемпотентность: повтор того же `slotKey` возвращает `SLOT_TAKEN`. */
+    /** @description Создать бронирование на свободный слот. Коды `SLOT_TAKEN`/`MEETING_TYPE_NOT_FOUND`/`OUTSIDE_WORKING_HOURS`/`OUTSIDE_WINDOW`/`MISMATCH_STEP` приходят в теле как `DomainError`; сервер выставляет HTTP 409/404/422 на уровне реализации. Слот, который уже начался, не бронируется: `OUTSIDE_WINDOW`. Идемпотентность: повтор того же `slotKey` возвращает `SLOT_TAKEN`. */
     post: operations["Bookings_create"];
     delete?: never;
     options?: never;
@@ -81,7 +81,7 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** @description Получить свободные слоты типа встречи в текущем окне бронирования (14 дней). Если тип встречи не существует — тело содержит `DomainError`. */
+    /** @description Получить свободные слоты типа встречи в текущем окне бронирования (14 дней). Слоты, которые уже начались, не отдаются: в сетку попадают только старты в будущем. Если тип встречи не существует — тело содержит `DomainError`. */
     get: operations["MeetingTypes_availability"];
     put?: never;
     post?: never;
