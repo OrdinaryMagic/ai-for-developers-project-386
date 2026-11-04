@@ -226,8 +226,10 @@ Production-конфигурация и секреты живут **вне реп
 [docs/agents/production-secrets.md](docs/agents/production-secrets.md).
 
 - **Шаблон env-контракта** — [`.env.example`](.env.example) в корне репозитория:
-  форма без значений. Файлов `.env` / `.env.production` с реальными значениями
-  в репозитории нет и быть не должно (оба в `.gitignore`).
+  имена переменных + значения по умолчанию (дефолты из кода; для `HOST` и
+  `NODE_ENV` — production-значения). Секретов в шаблоне нет: ни одно из этих
+  значений секретом не является. Файлов `.env` / `.env.production` с реальными
+  значениями в репозитории нет и быть не должно (оба в `.gitignore`).
 - **Платформа — Fly.io** ([ADR-0004](docs/adr/0004-hosting-platform.md)):
   несекретное (`PORT`, `HOST`, `NODE_ENV`) — в `fly.toml [env]` (тикет #54);
   секреты — только через `fly secrets set` или dashboard Fly, значение секрета

@@ -18,6 +18,8 @@ import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { readmeSection } from "./helpers/readme.js";
+import { secretValueHits } from "./helpers/secrets.js";
 
 const REPO_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -97,17 +99,25 @@ function readOwnerConfigEnvVars(file: string): Set<string> {
 
 /** Ключи `NAME=...` из dotenv-файла (комментарии и пустые строки пропускаются). */
 function parseEnvKeys(content: string): string[] {
-  const keys: string[] = [];
+  return [...parseEnvEntries(content).keys()];
+}
+
+/**
+ * Пары `NAME=VALUE` из dotenv-файла. Значение — всё после первого `=`,
+ * включая пробелы (`OWNER_NAME=Demo Owner`).
+ */
+function parseEnvEntries(content: string): Map<string, string> {
+  const entries = new Map<string, string>();
   for (const rawLine of content.split("\n")) {
     const line = rawLine.trim();
     if (line === "" || line.startsWith("#")) continue;
-    const match = /^([A-Za-z_][A-Za-z0-9_]*)=/.exec(line);
+    const match = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/.exec(line);
     if (match === null) {
       throw new Error(`.env.example: строка не формы NAME=... — "${line}"`);
     }
-    keys.push(match[1] as string);
+    entries.set(match[1] as string, match[2] as string);
   }
-  return keys;
+  return entries;
 }
 
 /**
@@ -181,6 +191,25 @@ describe("drift seam: .env.example ↔ код", () => {
     const keys = parseEnvKeys(readFileSync(ENV_EXAMPLE_PATH, "utf8"));
     expect([...new Set(keys)].toSorted()).toEqual([...keys].toSorted());
   });
+
+  it(".env.example содержит значения по умолчанию из контракта #55", () => {
+    // Шаблон не «форма без значений»: в нём записаны дефолты из кода (и
+    // production-значения для HOST/NODE_ENV). Значения обязаны совпадать с
+    // контрактом тикета #55, иначе шаблон врёт о поведении приложения.
+    const entries = parseEnvEntries(readFileSync(ENV_EXAMPLE_PATH, "utf8"));
+
+    for (const { name, values } of EXPECTED_ENV_VARS) {
+      const value = entries.get(name);
+      expect(value, `в .env.example нет значения для ${name}`).toBeDefined();
+      expect(values, `неожиданное значение ${name}="${value}" в .env.example`).toContain(value);
+    }
+  });
+
+  it(".env.example не содержит credential-значений", () => {
+    // Шаблон коммитится в репозиторий: присваивания токенов/паролей в нём
+    // быть не должно (сканер — общий, `test/helpers/secrets.ts`).
+    expect(secretValueHits(readFileSync(ENV_EXAMPLE_PATH, "utf8"))).toEqual([]);
+  });
 });
 
 describe("drift seam: docs/agents/production-secrets.md ↔ код", () => {
@@ -239,6 +268,25 @@ describe("drift seam: README ↔ runbook", () => {
   it("README содержит раздел «Secrets» со ссылкой на runbook", () => {
     expect(readme).toMatch(/^##\s+Secrets\s*$/m);
     expect(readme).toContain("docs/agents/production-secrets.md");
+  });
+
+  it("README и runbook описывают `.env.example` одинаково", () => {
+    // `.env.example` содержит значения по умолчанию (дефолты из кода) — называть
+    // его «формой/шаблоном без значений» значит противоречить самому файлу.
+    const doc = readFileSync(SECRETS_DOC_PATH, "utf8");
+    const secretsSection = readmeSection(readme, "Secrets");
+
+    for (const [name, text] of [
+      ["README «Secrets»", secretsSection],
+      ["runbook", doc],
+    ] as const) {
+      expect(text, `${name}: .env.example назван шаблоном без значений`).not.toMatch(
+        /без\s+значений/,
+      );
+      expect(text, `${name}: нет единой формулировки про шаблон env-контракта`).toMatch(
+        /имена\s+переменных/,
+      );
+    }
   });
 });
 
