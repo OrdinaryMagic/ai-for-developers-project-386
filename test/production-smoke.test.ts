@@ -25,11 +25,10 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../src/app.js";
-import { readTopLevelStringKey } from "./helpers/toml.js";
 
 const REPO_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const SCRIPT_PATH = join(REPO_ROOT, "scripts", "production-smoke.sh");
-const FLY_TOML_PATH = join(REPO_ROOT, "fly.toml");
+const MANIFEST_PATH = join(REPO_ROOT, ".railway/production.json");
 
 /** Результат прогона скрипта: код возврата + собранный вывод. */
 interface SmokeRun {
@@ -64,9 +63,10 @@ function runSmoke(args: string[], env: NodeJS.ProcessEnv = {}): Promise<SmokeRun
   });
 }
 
-/** Top-level ключ `app` из `fly.toml` — имя Fly-приложения. */
-function readFlyApp(): string {
-  return readTopLevelStringKey(readFileSync(FLY_TOML_PATH, "utf8"), "app") ?? "";
+/** Канонический публичный URL — поле `publicUrl` манифеста окружения. */
+function readCanonicalUrl(): string {
+  const manifest = JSON.parse(readFileSync(MANIFEST_PATH, "utf8")) as { publicUrl?: string };
+  return manifest.publicUrl ?? "";
 }
 
 let app: FastifyInstance | null = null;
@@ -202,15 +202,25 @@ describe("валидация числовых env-переменных", () => {
   });
 });
 
-describe("default-URL выводится из fly.toml", () => {
+describe("default-URL выводится из манифеста окружения", () => {
   it("в скрипте нет захардкоженного публичного адреса", () => {
     const source = readFileSync(SCRIPT_PATH, "utf8");
 
-    expect(source).not.toContain("booking-api.fly.dev");
+    // Ни одного доменного литерала: адрес приходит только из манифеста
+    // окружения (`.railway/production.json`) или из аргумента командной строки.
+    expect(source).not.toMatch(/[a-z0-9-]+\.up\.railway\.app/);
     expect(source).not.toContain("booking.example.com");
+    expect(source).not.toContain("fly.dev");
   });
 
-  it("без аргумента печатает URL, собранный из ключа `app` в fly.toml", async () => {
+  it("скрипт читает адрес из манифеста окружения", () => {
+    const source = readFileSync(SCRIPT_PATH, "utf8");
+
+    expect(source).toContain(".railway/production.json");
+    expect(source).toContain("publicUrl");
+  });
+
+  it("без аргумента печатает URL из поля `publicUrl` манифеста", async () => {
     // Stub `curl` в PATH: сетевых обращений не происходит, скрипт только
     // печатает разрешённый base URL и затем падает на недоступном хосте.
     const stubDir = mkdtempSync(join(tmpdir(), "production-smoke-stub-"));
@@ -220,6 +230,33 @@ describe("default-URL выводится из fly.toml", () => {
 
     const run = await runSmoke([], { PATH: `${stubDir}:${process.env.PATH ?? ""}` });
 
-    expect(run.output).toContain(`https://${readFlyApp()}.fly.dev`);
+    expect(run.output).toContain(readCanonicalUrl());
+  });
+
+  it("без аргумента и без манифеста — понятная ошибка, non-zero exit", async () => {
+    // Скрипт обязан деградировать явно, а не молча проверять неверный адрес.
+    const emptyRepo = mkdtempSync(join(tmpdir(), "production-smoke-no-manifest-"));
+    // Копируем только скрипт: манифеста рядом не будет.
+    const scriptCopy = join(emptyRepo, "production-smoke.sh");
+    writeFileSync(scriptCopy, readFileSync(SCRIPT_PATH, "utf8"), "utf8");
+    chmodSync(scriptCopy, 0o755);
+
+    const run = await new Promise<SmokeRun>((resolve, reject) => {
+      const child = spawn(scriptCopy, [], {
+        env: { ...process.env, SMOKE_RETRIES: "1", SMOKE_RETRY_DELAY: "0" },
+      });
+      let output = "";
+      child.stdout.on("data", (chunk: Buffer) => {
+        output += chunk.toString();
+      });
+      child.stderr.on("data", (chunk: Buffer) => {
+        output += chunk.toString();
+      });
+      child.on("error", reject);
+      child.on("close", (code) => resolve({ code, output }));
+    });
+
+    expect(run.code, run.output).not.toBe(0);
+    expect(run.output).toContain("production.json");
   });
 });

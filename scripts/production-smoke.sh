@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
 # scripts/production-smoke.sh — post-deploy smoke check against a live base URL.
 #
-# Run right after `fly deploy`: it proves that the freshly deployed instance
-# actually answers on the public address. Run from the repo root:
+# Run right after a Railway deploy: it proves that the freshly deployed
+# instance actually answers on the public address. Run from the repo root:
 #
-#   scripts/production-smoke.sh                     # default URL from fly.toml
+#   scripts/production-smoke.sh                     # default URL from .railway/production.json
 #   scripts/production-smoke.sh https://host:port   # explicit URL
 #
-# The default base URL is NOT hardcoded here — it is derived from the
-# top-level `app` key of `fly.toml` as `https://<app>.fly.dev`, so
-# `fly.toml` stays the single source of truth for the canonical address.
+# The default base URL is NOT hardcoded here — it is read from the
+# `publicUrl` field of `.railway/production.json` (манифест production-окружения),
+# so that manifest stays the single source of truth for the canonical address.
+# The IaC-конфиг `.railway/railway.ts` намеренно не содержит адреса: Railway
+# генерирует `*.up.railway.app` сам и в IaC-файл сгенерированные домены не
+# попадают (docs.railway.com/infrastructure-as-code).
 #
 # Exit codes:
 #   0 — every check passed (PASS).
@@ -26,9 +29,10 @@
 #   holds data is perfectly normal) and never fails the smoke. A non-array
 #   body, invalid JSON or a non-2xx status are FAILs.
 #
-# Retry loop (safety net): during a rolling deploy the Fly Proxy may briefly
-# answer 502 while the machine is being replaced, so every check is retried
-# up to SMOKE_RETRIES times with SMOKE_RETRY_DELAY seconds between attempts.
+# Retry loop (safety net): during a rolling deploy the Railway edge may briefly
+# answer 502 while the old replica is drained and the new one is starting, so
+# every check is retried up to SMOKE_RETRIES times with SMOKE_RETRY_DELAY
+# seconds between attempts.
 #
 # Environment:
 #   SMOKE_RETRIES      — attempts per check (default 5)
@@ -45,7 +49,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
-FLY_TOML="${REPO_ROOT}/fly.toml"
+RAILWAY_MANIFEST="${REPO_ROOT}/.railway/production.json"
 
 RETRIES="${SMOKE_RETRIES:-5}"
 RETRY_DELAY="${SMOKE_RETRY_DELAY:-3}"
@@ -149,9 +153,9 @@ require_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "required command not found: $1"
 }
 
-# Top-level `app` key of fly.toml — the Fly application name.
-# The canonical public URL is derived from it: https://<app>.fly.dev
-fly_app_name() {
+# Canonical public URL — поле `publicUrl` манифеста окружения
+# `.railway/production.json`. Пусто на выходе, если поле не читается.
+default_base_url() {
   # The JS source below is intentionally single-quoted: the shell must NOT
   # expand anything inside it — it is JavaScript, not a shell template.
   # shellcheck disable=SC2016
@@ -159,26 +163,18 @@ fly_app_name() {
 import { readFileSync } from "node:fs";
 
 const [path] = process.argv.slice(1);
-let source = "";
+let manifest = {};
 try {
-  source = readFileSync(path, "utf8");
+  manifest = JSON.parse(readFileSync(path, "utf8"));
 } catch {
   process.exit(1);
 }
 
-for (const raw of source.split("\n")) {
-  const line = raw.trim();
-  if (line === "") continue;
-  // A section header ends the top-level block — `app` is a root key.
-  if (line.startsWith("[")) break;
-  const match = /^app\s*=\s*"([^"]*)"/.exec(line);
-  if (match) {
-    process.stdout.write(match[1]);
-    process.exit(0);
-  }
+const url = typeof manifest.publicUrl === "string" ? manifest.publicUrl.trim() : "";
+if (url === "") {
+  process.exit(1);
 }
-
-process.exit(1);
+process.stdout.write(url);
 ' "$1"
 }
 
@@ -279,14 +275,14 @@ main() {
     BASE_URL="${1%/}"
     URL_SOURCE="command-line argument"
   else
-    if [ ! -f "${FLY_TOML}" ]; then
-      die "cannot find ${FLY_TOML} — pass the base URL explicitly"
+    if [ ! -f "${RAILWAY_MANIFEST}" ]; then
+      die "cannot find ${RAILWAY_MANIFEST} — pass the base URL explicitly"
     fi
-    if ! FLY_APP="$(fly_app_name "${FLY_TOML}")"; then
-      die "cannot read the top-level 'app' key from ${FLY_TOML} — pass the base URL explicitly"
+    if ! DEFAULT_URL="$(default_base_url "${RAILWAY_MANIFEST}")"; then
+      die "cannot read the 'publicUrl' field from ${RAILWAY_MANIFEST} — pass the base URL explicitly"
     fi
-    BASE_URL="https://${FLY_APP}.fly.dev"
-    URL_SOURCE="fly.toml (app = \"${FLY_APP}\")"
+    BASE_URL="${DEFAULT_URL%/}"
+    URL_SOURCE=".railway/production.json (publicUrl)"
   fi
 
   TMP_DIR="$(mktemp -d)"
