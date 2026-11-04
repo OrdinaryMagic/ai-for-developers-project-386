@@ -2,6 +2,11 @@ amends "package://github.com/jdx/hk/releases/download/v2.11.0/hk@2.11.0#/Config.
 import "package://github.com/jdx/hk/releases/download/v2.11.0/hk@2.11.0#/Builtins.pkl"
 
 local linters = new Mapping<String, Step> {
+  ["gitleaks"] {
+    check = "gitleaks protect --staged --redact=20 --verbose --no-banner"
+    // gitleaks has no auto-fix; `fix` mirrors `check` so `hk fix` runs the same check.
+    fix = "gitleaks protect --staged --redact=20 --verbose --no-banner"
+  }
   ["oxfmt"] = (Builtins.oxfmt) {
     check = "npm exec -- oxfmt --check --no-error-on-unmatched-pattern {{files}}"
     fix = "npm exec -- oxfmt --write --no-error-on-unmatched-pattern {{files}}"

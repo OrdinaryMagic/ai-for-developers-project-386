@@ -1,0 +1,35 @@
+# .gitleaks.toml — repo-root config; gitleaks loads this automatically when running with -s .
+
+title = "booking-api gitleaks config"
+
+# Use a recent default ruleset; let upstream vet the regex list.
+# Pin to a specific version for reproducibility.
+[extend]
+useDefault = true
+
+# --- Repo-wide ignores ---------------------------------------------
+# Commit SHAs shown in CHANGELOG.md, AGENTS.md, session manifests, ADR refs.
+# These are 7-40 char hex strings that gitleaks' default "generic" rule
+# occasionally misfires on inside backtick-quoted code blocks.
+[allowlist]
+description = "Allowlists for known-safe strings in booking-api."
+paths = [
+  '''^CHANGELOG\.md$''',
+  '''^docs/agents/sessions/.*\.md$''',
+  '''^docs/agents/security/.*\.md$''',
+  '''^docs/adr/.*\.md$''',
+  '''^README\.md$''',
+  '''^AGENTS\.md$''',
+  # JWT-shaped strings inside test fixtures (backend vitest specs + web
+  # Playwright specs) — keep the default regex but allowlist the paths so
+  # CI doesn't fire on synthetic tokens used in tests.
+  '''^test/.*\.ts$''',
+  '''^web/src/.*\.(test|spec)\.tsx?$''',
+]
+regexes = [
+  # Commit SHAs (full 40-hex or short 7-hex) inside backtick codeblocks.
+  '''`[0-9a-f]{7,40}`''',
+  # package-lock.json integrity hashes (sha512-base64); gitleaks already
+  # whitelists these but the explicit rule documents intent for reviewers.
+  '''integrity": "sha512-[A-Za-z0-9+/=]+"''',
+]

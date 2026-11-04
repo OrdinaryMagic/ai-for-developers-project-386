@@ -52,3 +52,7 @@ Single-context: `GLOSSARY.md` в корне репозитория, `docs/adr/` 
 ### Историю implement-spec сессий вести в `docs/agents/sessions/`
 
 Каждая сессия `@implement-spec` оставляет manifest в `docs/agents/sessions/YYYY-MM-DD-<cart-id>-<short>.md` (индекс в `README.md`). В манифесте — какие sub-tickets закрыты, non-obvious drift (отклонения от спецификации с reasons), code-review findings и post-merge fixups с SHA. Это помогает следующему агенту в новой session бегло понять, что выкатили, без чтения всего `git log`. Cart-closed комментарий в GitHub issue остаётся canonical short-trace; манифест в `docs/` — это длинная версия с drift и reasoning.
+
+### Docker
+
+После wave-1 карты #42 backend живёт как Docker image: `docker build -t booking-api .` и `docker run --env PORT=…`. Базовые команды и ENV contract (`PORT` из env, `HOST=0.0.0.0` внутри контейнера, `GET /` и `GET /health` как smoke-эндпоинты) — в [README.md → ## Docker](./README.md#docker). Реализует тикеты #43 (Dockerfile + .dockerignore) и #45 (документация) карты #42.

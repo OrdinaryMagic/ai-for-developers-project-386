@@ -126,6 +126,77 @@ v1 сознательно узок по объёму и по модели хра
 - Интеграции с внешними календарями.
 - i18n и переключение TZ на стороне гостя.
 
+## Docker
+
+Backend поставляется как Docker image для прод-деплоя (карта #42
+«Dockerize booking-api v1 backend»). Сборка и локальный запуск:
+
+```bash
+docker build -t booking-api .
+docker run --env PORT=3030 --publish 3030:3030 booking-api
+```
+
+**Почему нет `docker` в Makefile.** В этом репозитории `make` —
+dev-инструмент (`make dev` / `make start`); Docker image — это
+продуктовый артефакт для деплоя, и собирают его напрямую через
+`docker build`, без отдельной алиасы.
+
+**ENV contract — `src/server.ts` читает `process.env`, не хардкод.**
+
+- `PORT` берётся из `process.env.PORT` в
+  [`src/server.ts`](src/server.ts:7) (default `3000`). Значение
+  `ENV PORT=3000` в Dockerfile — только fallback: прод-деплой и
+  внешняя автоматическая проверка после старта контейнера передают
+  свой порт через `docker run --env PORT=…`, и этот аргумент имеет
+  приоритет над env из образа.
+- `HOST` внутри контейнера всегда `0.0.0.0` (оверрайд dev-дефолта
+  `127.0.0.1` из `mise.toml`) — иначе опубликованный порт
+  недостижим снаружи контейнера, поэтому в Dockerfile выставлен
+  именно `HOST=0.0.0.0`.
+
+**Smoke-эндпоинты для внешней автоматической проверки.** После старта
+контейнера автоматика бьёт в [`src/routes/root.ts`](src/routes/root.ts)
+(`GET /`) и [`src/routes/health.ts`](src/routes/health.ts)
+(`GET /health`) — те же эндпоинты покрывает и `make check` через
+Fastify `app.inject`, без поднятия порта.
+
+CMD в образе в exec-форме (`node dist/server.js`): PID 1 — это
+процесс node, поэтому `docker stop` доставляет SIGTERM напрямую в
+node и Fastify-хуки успевают отработать graceful shutdown.
+
+Multi-arch (`linux/arm64`), image-signing и push в remote registry
+в этой карте
+**не делаются** — см. «Out of scope» карты #42 (production
+manifests, supply-chain security, remote-vault — тоже out of scope).
+
+## Security
+
+Карта #42 добавляет defense-in-depth скан репо на leaked credentials
+через [`gitleaks`](https://github.com/gitleaks/gitleaks) (тикет #44):
+pre-commit hook ловит утечку до `git push`, CI ловит то, что проскочило
+мимо локального хука. Конфиг — `.gitleaks.toml` в корне репозитория
+(allowlist для commit-SHA и test-fixtures, см. тикет #47).
+
+- **Локально**: pre-commit step в `hk.pkl` запускает
+  `gitleaks protect --staged --redact=20 --verbose --no-banner` против
+  staged-изменений (тикет #48). Стандартный flow: правите файлы → `git
+  add` → `git commit`; `hk` step сам прогонит gitleaks на stage. Для
+  ручной проверки всего репо: `hk check --all`.
+- **CI**: workflow `.github/workflows/ci.yml` → джоб `check` → шаг
+  «Scan repo for secrets (gitleaks)» через
+  `gitleaks/gitleaks-action@v2` (тикет #49). Бежит **до** Regenerate
+  OpenAPI и `mise run check`, чтобы утечка токенов не маскировалась
+  fail-fast по regeneration-скриптам.
+
+**Smoke-чек end-to-end** (тикет #50): `./scripts/gitleaks-smoke.sh`.
+Создаёт фейковый AWS-docs ключ в временном файле, стейджит его,
+ожидает что gitleaks его детектит (exit ≠ 0), затем
+`git reset` всё чистит. Запускайте после правок `.gitleaks.toml`
+или `hk.pkl`, чтобы убедиться что новый allowlist не закрыл
+настоящие утечки. Smoke-чек никуда не коммитит fake-secret — он
+работает только в staging area. Для проверки CI-слоя: push в любую
+ветку и `gh run watch <run-id>`.
+
 ## UI / E2E
 
 Frontend и end-to-end тесты — отдельная итерация карты #26 («Booking API v1 — UI & E2E»). Этот раздел собирает команды и правила для фронтенд-инженеров; сам код появится в последующих тикетах той же карты.
