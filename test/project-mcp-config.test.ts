@@ -1,0 +1,217 @@
+/**
+ * Дрейф-шит «проектная MCP-конфигурация ↔ инструкция в репозитории» (тикет #63).
+ *
+ * Смысл: `.opencode/opencode.json` — единственное место, где проект объявляет
+ * MCP-серверы для агента. Форма V2 (`mcp.servers`) канонична, V1-путь
+ * (`mcp.<name>`) deprecated. Если форма устареет, в конфиг попадёт токен или
+ * инструкция в README разойдётся с конфигом — новый разработчик получит либо
+ * сломанное подключение, либо утечку кредов в git.
+ *
+ * Ожидаемые значения — литералы ниже: продублированы из acceptance criteria
+ * тикета #63 и из документации OpenCode V2, а **не** вычислены из самого
+ * конфига (иначе тест тавтологичен).
+ */
+import { describe, it, expect } from "vitest";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const REPO_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
+
+const CONFIG_PATH = join(REPO_ROOT, ".opencode/opencode.json");
+const README_PATH = join(REPO_ROOT, "README.md");
+const MCP_DOC_PATH = join(REPO_ROOT, "docs/agents/production-mcp.md");
+
+/**
+ * Ключи, допустимые у `mcp` в OpenCode V2. Всё остальное — устаревшая
+ * V1-форма, где сервер объявлялся прямо в `mcp.<name>`.
+ */
+const CANONICAL_MCP_KEYS = ["servers", "timeout"];
+
+/** Что ждём от `fly-mcp` (AC тикета #63): remote + публичный URL, OAuth по умолчанию. */
+const FLY_MCP_SERVER = { type: "remote", url: "https://mcp.fly.io" } as const;
+
+/** Что ждём от `shadcn` после миграции формы — команда запуска не меняется. */
+const SHADCN_COMMAND = ["npx", "-y", "shadcn@latest", "mcp"];
+
+/** Команды, которые обязаны быть в инструкции (AC тикета #63). */
+const CONNECT_COMMAND = "opencode mcp add --global fly-mcp --url https://mcp.fly.io";
+const AUTH_COMMAND = "opencode mcp auth fly-mcp";
+
+type McpServerEntry = {
+  type?: string;
+  url?: string;
+  command?: string[];
+  headers?: Record<string, string>;
+  environment?: Record<string, string>;
+  oauth?: unknown;
+};
+
+type OpenCodeConfig = {
+  $schema?: string;
+  mcp?: Record<string, unknown> & { servers?: Record<string, McpServerEntry> };
+};
+
+const rawConfig = readFileSync(CONFIG_PATH, "utf8");
+
+/** Разбор конфига без падения на этапе импорта: ошибка — тоже проверяемый факт. */
+function tryParseConfig(raw: string): { config: OpenCodeConfig; error: unknown } {
+  try {
+    return { config: JSON.parse(raw) as OpenCodeConfig, error: undefined };
+  } catch (error) {
+    return { config: {}, error };
+  }
+}
+
+const parsed = tryParseConfig(rawConfig);
+const config = parsed.config;
+
+describe("drift seam: .opencode/opencode.json — форма V2", () => {
+  it("конфиг — валидный JSON (подмножество JSONC)", () => {
+    expect(parsed.error).toBeUndefined();
+  });
+
+  it("конфиг ссылается на опубликованную схему OpenCode", () => {
+    expect(config.$schema).toBe("https://opencode.ai/config.json");
+  });
+
+  it("серверы объявлены в каноническом V2-пути `mcp.servers`", () => {
+    const servers = config.mcp?.servers;
+    expect(servers, "в конфиге нет `mcp.servers`").toBeTypeOf("object");
+    expect(Object.keys(servers ?? {})).toContain("fly-mcp");
+  });
+
+  it("устаревшая V1-форма `mcp.<name>` не используется", () => {
+    const mcp = config.mcp ?? {};
+    const legacyKeys = Object.keys(mcp).filter((key) => !CANONICAL_MCP_KEYS.includes(key));
+    expect(legacyKeys, "серверы объявлены прямо в `mcp` — это deprecated V1-путь").toEqual([]);
+  });
+});
+
+describe("drift seam: .opencode/opencode.json — состав серверов", () => {
+  const servers = config.mcp?.servers ?? {};
+
+  it("`fly-mcp` — remote-сервер Fly.io с публичным URL", () => {
+    expect(servers["fly-mcp"]).toMatchObject(FLY_MCP_SERVER);
+  });
+
+  it("`fly-mcp` не содержит заголовков с кредом и не отключает OAuth", () => {
+    const fly = servers["fly-mcp"] ?? {};
+    expect(fly.headers).toBeUndefined();
+    expect(fly.oauth).toBeUndefined();
+  });
+
+  it("`shadcn` остался в списке серверов (миграция формы, не удаление)", () => {
+    expect(Object.keys(servers)).toContain("shadcn");
+    expect(servers["shadcn"]?.type).toBe("local");
+    expect(servers["shadcn"]?.command).toEqual(SHADCN_COMMAND);
+  });
+
+  it("состав серверов совпадает с ожидаемым", () => {
+    expect(Object.keys(servers).toSorted()).toEqual(["fly-mcp", "shadcn"]);
+  });
+});
+
+/**
+ * Паттерны «похожего на секрет». Список — из acceptance criteria тикета #63
+ * (в репозитории не должно быть токенов/ключей/паролей) плюс типовые
+ * префиксы GitHub-токенов.
+ */
+const SECRET_PATTERNS: readonly RegExp[] = [
+  /token/i,
+  /password/i,
+  /secret/i,
+  /api[_-]?key/i,
+  /bearer/i,
+  /\bghp_/,
+  /\bgho_/,
+];
+
+/** Все ключи и строковые значения конфига вместе с путём до них. */
+function collectStrings(value: unknown, path = "$"): Array<{ path: string; text: string }> {
+  if (typeof value === "string") return [{ path, text: value }];
+  if (Array.isArray(value)) {
+    return value.flatMap((item, index) => collectStrings(item, `${path}[${index}]`));
+  }
+  if (value !== null && typeof value === "object") {
+    return Object.entries(value).flatMap(([key, item]) => [
+      { path: `${path}.${key}`, text: key },
+      ...collectStrings(item, `${path}.${key}`),
+    ]);
+  }
+  return [];
+}
+
+/** Подозрительные строки конфига: путь + текст, чтобы падение было читаемым. */
+function secretHits(value: unknown): string[] {
+  return collectStrings(value)
+    .filter(({ text }) => SECRET_PATTERNS.some((pattern) => pattern.test(text)))
+    .map(({ path, text }) => `${path} → ${text}`);
+}
+
+/**
+ * Тело markdown-раздела README второго уровня — чтобы проверки читали именно
+ * раздел «MCP», а не совпадение в соседнем тексте (например, в «Secrets»).
+ */
+function readmeSection(readme: string, heading: string): string {
+  const start = readme.search(new RegExp(`^##\\s+${heading}\\s*$`, "m"));
+  if (start === -1) return "";
+  const rest = readme.slice(start);
+  const next = rest.slice(1).search(/^##\s+/m);
+  return next === -1 ? rest : rest.slice(0, next + 1);
+}
+
+describe("репозиторий не хранит значения секретов в MCP-конфиге", () => {
+  it("в конфиге нет токенов, ключей, паролей и заголовков с кредом", () => {
+    expect(secretHits(config)).toEqual([]);
+  });
+});
+
+describe("drift seam: README ↔ проектная MCP-конфигурация", () => {
+  const readme = readFileSync(README_PATH, "utf8");
+  const section = readmeSection(readme, "MCP");
+
+  it("README содержит раздел «MCP»", () => {
+    expect(readme).toMatch(/^##\s+MCP\s*$/m);
+    expect(section).not.toBe("");
+  });
+
+  it("раздел «MCP» объясняет, как подключить `fly-mcp`", () => {
+    expect(section).toContain(CONNECT_COMMAND);
+  });
+
+  it("раздел «MCP» объясняет, как залогиниться через OAuth", () => {
+    expect(section).toContain(AUTH_COMMAND);
+    expect(section).toContain("/mcps");
+  });
+
+  it("раздел «MCP» фиксирует: секреты хранятся вне репозитория", () => {
+    expect(section).toMatch(/вне\s+репозитория/i);
+  });
+
+  it("раздел «MCP» ссылается на runbook по MCP", () => {
+    expect(section).toContain("docs/agents/production-mcp.md");
+  });
+});
+
+describe("drift seam: runbook MCP ↔ проектная MCP-конфигурация", () => {
+  const doc = existsSync(MCP_DOC_PATH) ? readFileSync(MCP_DOC_PATH, "utf8") : "";
+
+  it("runbook существует", () => {
+    expect(existsSync(MCP_DOC_PATH)).toBe(true);
+  });
+
+  it("runbook описывает подключение и логин теми же командами", () => {
+    expect(doc).toContain(CONNECT_COMMAND);
+    expect(doc).toContain(AUTH_COMMAND);
+  });
+
+  it("runbook фиксирует тот же публичный URL, что и конфиг", () => {
+    expect(doc).toContain(FLY_MCP_SERVER.url);
+  });
+
+  it("runbook говорит, что OAuth-токены хранятся вне репозитория", () => {
+    expect(doc).toMatch(/вне\s+репозитория/i);
+    expect(doc).toContain("OAuth");
+  });
+});

@@ -239,6 +239,36 @@ Production-конфигурация и секреты живут **вне реп
   in-memory store ([ADR-0001](docs/adr/0001-in-memory-store-with-restart-reset.md)).
   Смена секрета — операция в окне, где записок мало.
 
+## MCP
+
+Проектная конфигурация MCP для агента (OpenCode) лежит в
+[`.opencode/opencode.json`](.opencode/opencode.json). Серверы объявлены в
+каноническом V2-пути `mcp.servers`: `fly-mcp` (remote, Fly.io) и `shadcn`
+(local). Полный runbook — [docs/agents/production-mcp.md](docs/agents/production-mcp.md).
+
+```bash
+# Подключить fly-mcp глобально (чтобы работало и в других проектах):
+opencode mcp add --global fly-mcp --url https://mcp.fly.io
+
+# Залогиниться через OAuth (откроется браузер, выбрать организацию):
+opencode mcp auth fly-mcp
+
+# Проверить статус подключения:
+opencode mcp list
+```
+
+- **Логин:** либо `opencode mcp auth fly-mcp`, либо в интерфейсе агента
+  `/mcps` → `fly-mcp` → sign in. В этом репозитории подключение уже
+  объявлено, поэтому достаточно авторизоваться.
+- **Секреты:** OAuth-токены и любые секреты хранятся **вне репозитория** — в
+  конфиге пользователя (`~/.config/opencode/opencode.jsonc`). В репозиторий
+  попадают только публичные URL и команды; токенов в `.opencode/opencode.json`
+  нет и быть не должно.
+- **Что даёт `fly-mcp`:** управление Fly Apps, Machines, volumes, app-secrets и
+  TLS-сертификатами (плюс Managed Postgres и Sprites). Например,
+  `list_app_secrets` показывает имена секретов и их digest'ы, но **не
+  значения**.
+
 ## UI / E2E
 
 Frontend и end-to-end тесты — отдельная итерация карты #26 («Booking API v1 — UI & E2E»). Этот раздел собирает команды и правила для фронтенд-инженеров; сам код появится в последующих тикетах той же карты.
