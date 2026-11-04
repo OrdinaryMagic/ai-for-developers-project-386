@@ -20,6 +20,11 @@ paths = [
   '''^docs/adr/.*\.md$''',
   '''^README\.md$''',
   '''^AGENTS\.md$''',
+  # JWT-shaped strings inside test fixtures (backend vitest specs + web
+  # Playwright specs) — keep the default regex but allowlist the paths so
+  # CI doesn't fire on synthetic tokens used in tests.
+  '''^test/.*\.ts$''',
+  '''^web/src/.*\.(test|spec)\.tsx?$''',
 ]
 regexes = [
   # Commit SHAs (full 40-hex or short 7-hex) inside backtick codeblocks.
@@ -28,12 +33,3 @@ regexes = [
   # whitelists these but the explicit rule documents intent for reviewers.
   '''integrity": "sha512-[A-Za-z0-9+/=]+"''',
 ]
-
-# --- Per-rule tightening (false-positive reduction in TypeScript) --
-# JWTs in test fixtures under test/ and web/src/**: keep the default regex
-# but allowlist file paths so test fixtures don't generate CI noise.
-[[rules]]
-id = "jwt-via-test-fixtures"
-description = "Allow JWT-shaped strings in test fixtures."
-# We do NOT redefine the rule body — only attach an allowlist.
-allowlists = [{ paths = ['''^test/.*\.ts$''', '''^web/src/.*\.(test|spec)\.tsx?$'''] }]
