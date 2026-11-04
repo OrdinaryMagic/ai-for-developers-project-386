@@ -128,8 +128,8 @@ Workflow `.github/workflows/ci.yml` запускается на каждый pus
 
 v1 сознательно узок по объёму и по модели хранения; этот раздел — фиксация рамок, требуемая [ADR-0001](docs/adr/0001-in-memory-store-with-restart-reset.md). Расширение любого пункта — через отдельный тикет и ADR.
 
-- **Хранилище в памяти процесса.** Типы встреч и записи живут в памяти процесса ([Storage](GLOSSARY.md)). Любой рестарт — `npm start`, `fly deploy`, `docker restart`, OOM-kill — стирает всё. Дисклеймер по ТЗ и фиксация решения — [ADR-0001](docs/adr/0001-in-memory-store-with-restart-reset.md); переход на персистентное хранилище отложен в отдельную итерацию.
-- **Один процесс — одна копия состояния.** Multi-instance деплой (`fly scale`, k8s `replicas > 1`) рассинхронизирует типы встреч и записи между репликами. v1 этого не решает: пишите либо за одним процессом, либо готовьте реальное shared-хранилище (см. [ADR-0001](docs/adr/0001-in-memory-store-with-restart-reset.md), расширение — [ADR-0002](docs/adr/0002-single-writer-in-memory-store.md)).
+- **Хранилище в памяти процесса.** Типы встреч и записи живут в памяти процесса ([Storage](GLOSSARY.md)). Любой рестарт — `npm start`, `railway redeploy`, `docker restart`, OOM-kill — стирает всё. Дисклеймер по ТЗ и фиксация решения — [ADR-0001](docs/adr/0001-in-memory-store-with-restart-reset.md); переход на персистентное хранилище отложен в отдельную итерацию.
+- **Один процесс — одна копия состояния.** Multi-instance деплой (`railway scale`, k8s `replicas > 1`) рассинхронизирует типы встреч и записи между репликами. v1 этого не решает: пишите либо за одним процессом, либо готовьте реальное shared-хранилище (см. [ADR-0001](docs/adr/0001-in-memory-store-with-restart-reset.md), расширение — [ADR-0002](docs/adr/0002-single-writer-in-memory-store.md)).
 - **Конкурентность через in-process `AsyncLock`.** Снимко-чтения (`/availability`, `/bookings`) и мутации (`POST /bookings`) сериализуются одним мьютексом на `BookingStore`. Это пропускная способность, ограниченная одним ядром; для горизонтального масштабирования требуется DB-уровень изоляции ([ADR-0001](docs/adr/0001-in-memory-store-with-restart-reset.md), детали шва `acquire/release` под будущую транзакцию — [ADR-0002](docs/adr/0002-single-writer-in-memory-store.md)).
 - **Один владелец на развёртывание.** Конфигурация владельца читается из env: `OWNER_NAME`, `OWNER_TIMEZONE`, `OWNER_WINDOW_DAYS`, `OWNER_SLOT_STEP_MINUTES`, `OWNER_WORKING_HOURS_START`, `OWNER_WORKING_HOURS_END` (полный контракт — [Secrets](#secrets)). Менять владельца = пересборка и перезапуск. UI владельца отсутствует (см. [GLOSSARY.md](GLOSSARY.md), раздел «Out of scope для v1»).
 
@@ -156,6 +156,17 @@ Backend поставляется как Docker image для прод-депло�
 ```bash
 docker build -t booking-api .
 docker run --env PORT=3030 --publish 3030:3030 booking-api
+```
+
+**В образе — и API, и собранный фронтенд.** Dockerfile состоит из трёх стадий:
+`web-builder` (сборка SPA из workspace `web/` → `web/dist`), `builder`
+(`tsc` → `dist/`) и `runtime` (prod-зависимости + `dist/` + `web/dist`).
+Один сервис отдаёт и API, и интерфейс на одном домене — решение
+[ADR-0006](docs/adr/0006-single-origin-spa.md). Проверить локально:
+
+```bash
+curl -s http://127.0.0.1:3030/                       # {"hello":"world"} — API-клиенту
+curl -s -H 'Accept: text/html' http://127.0.0.1:3030/   # оболочка SPA — браузеру
 ```
 
 **Почему нет `docker` в Makefile.** В этом репозитории `make` —
@@ -231,14 +242,18 @@ Production-конфигурация и секреты живут **вне реп
   `NODE_ENV` — production-значения). Секретов в шаблоне нет: ни одно из этих
   значений секретом не является. Файлов `.env` / `.env.production` с реальными
   значениями в репозитории нет и быть не должно (оба в `.gitignore`).
-- **Платформа — Fly.io** ([ADR-0004](docs/adr/0004-hosting-platform.md)):
-  несекретное (`PORT`, `HOST`, `NODE_ENV`) — в `fly.toml [env]` (тикет #54);
-  секреты — только через `fly secrets set` или dashboard Fly, значение секрета
+- **Платформа — Railway.io** ([ADR-0005](docs/adr/0005-hosting-platform-railway.md)):
+  несекретное (`HOST`, `NODE_ENV` и публичные `OWNER_*`) — в блоке `env` файла
+  [`.railway/railway.ts`](.railway/railway.ts) (тикет #54); `PORT` Railway
+  подставляет сам.
+- **Секретов в v1 нет.** `OWNER_*` — не секреты: `GET /config` отдаёт их
+  анонимно, «секретность» им ничего не даёт. Механизм для будущих секретов —
+  `railway variable set` и sealed variables на платформе; значение секрета
   нельзя прочитать обратно.
-- **Ротация:** `fly secrets set` → редеплой → smoke-проверка (`GET /health`,
+- **Ротация:** `railway variable set` → редеплой → smoke-проверка (`GET /health`,
   `GET /config`, `GET /meeting-types`). При утечке — смена значения, редеплой и
   инвалидация всего, что выдавалось на старом значении.
-- **Учтите:** `fly secrets set` перезапускает Machines, а значит стирает
+- **Учтите:** смена переменных перезапускает реплику, а значит стирает
   in-memory store ([ADR-0001](docs/adr/0001-in-memory-store-with-restart-reset.md)).
   Смена секрета — операция в окне, где записок мало.
 
@@ -246,90 +261,129 @@ Production-конфигурация и секреты живут **вне реп
 
 Проектная конфигурация MCP для агента (OpenCode) лежит в
 [`.opencode/opencode.json`](.opencode/opencode.json). Серверы объявлены в
-каноническом V2-пути `mcp.servers`: `fly-mcp` (remote, Fly.io) и `shadcn`
-(local). Полный runbook — [docs/agents/production-mcp.md](docs/agents/production-mcp.md).
+каноническом V2-пути `mcp.servers`: `railway-mcp` (remote, Railway.io) и
+`shadcn` (local). Полный runbook — [docs/agents/production-mcp.md](docs/agents/production-mcp.md).
 
 ```bash
-# Подключить fly-mcp глобально (чтобы работало и в других проектах):
-opencode mcp add --global fly-mcp --url https://mcp.fly.io
+# Подключить railway-mcp глобально (чтобы работало и в других проектах):
+opencode mcp add --global railway-mcp --url https://mcp.railway.com
 
 # Залогиниться через OAuth (откроется браузер, выбрать организацию):
-opencode mcp auth fly-mcp
+opencode mcp auth railway-mcp
 
 # Проверить статус подключения:
 opencode mcp list
 ```
 
-- **Логин:** либо `opencode mcp auth fly-mcp`, либо в интерфейсе агента
-  `/mcps` → `fly-mcp` → sign in. В этом репозитории подключение уже
+- **Логин:** либо `opencode mcp auth railway-mcp`, либо в интерфейсе агента
+  `/mcps` → `railway-mcp` → sign in. В этом репозитории подключение уже
   объявлено, поэтому достаточно авторизоваться.
 - **Секреты:** OAuth-токены и любые секреты хранятся **вне репозитория** — в
   конфиге пользователя (`~/.config/opencode/opencode.jsonc`). В репозиторий
   попадают только публичные URL и команды; токенов в `.opencode/opencode.json`
   нет и быть не должно.
-- **Что даёт `fly-mcp`:** управление Fly Apps, Machines, volumes, app-secrets и
-  TLS-сертификатами (плюс Managed Postgres и Sprites). Например,
-  `list_app_secrets` показывает имена секретов и их digest'ы, но **не
-  значения**.
+- **Что даёт `railway-mcp`:** управление проектами, сервисами, деплоями,
+  переменными окружения, доменами и TLS-сертификатами Railway. Например,
+  `set-variables` выставляет переменные окружения, а `domain-status` показывает
+  статус сертификата — **значения** секретов при этом не показываются.
 
 ## Production deploy
 
-Публичный URL приложения: **https://booking-api.fly.dev**
+Публичный URL приложения: **https://booking-api-production-b3a4.up.railway.app**
 
-Имя Fly-приложения — ключ `app` в [`fly.toml`](fly.toml). Fly.io выдаёт адрес
-`https://<app>.fly.dev` автоматически, даже без custom domain, поэтому URL
-выше — не ручная копия, а производная от `app`: правка `app` в `fly.toml`
-меняет и канонический URL, и он не расходится с фактическим деплоем. Расхождение
-записей ловит drift-тест [`test/production-url.test.ts`](test/production-url.test.ts).
+Платформенный домен (`*.up.railway.app`) генерирует сама Railway, и в
+IaC-конфиг он **не** попадает: конфиг описывает сервис, а адрес выдаёт
+платформа. Поэтому единственный источник канонического адреса в репозитории —
+манифест окружения [`.railway/production.json`](.railway/production.json), поле
+`publicUrl`. URL выше — не ручная копия, а производная от `publicUrl`: правка
+манифеста меняет и канонический URL, и он не расходится с фактическим
+деплоем. Расхождение записей ловит drift-тест
+[`test/production-url.test.ts`](test/production-url.test.ts).
+
+Конфиг production-размещения — [`.railway/railway.ts`](.railway/railway.ts)
+(Railway Infrastructure as Code; решение о платформе —
+[ADR-0005](docs/adr/0005-hosting-platform-railway.md)). Он описывает build из
+корневого `Dockerfile`, health-check `GET /health`, always-on режим
+(`sleepApplication: false`), лимиты 0.5 vCPU / 500 MB и ровно одну реплику в
+регионе `us-east4-eqdc4a`.
 
 ### Последовательность деплоя
 
-1. `fly apps create booking-api` — имя глобально уникально на fly.io.
-2. `fly secrets set OWNER_NAME=… …` — секреты живут вне репозитория, runbook:
-   [Secrets](docs/agents/production-secrets.md).
-3. `fly deploy` — build из корневого `Dockerfile`, конфиг — `fly.toml`.
-4. `fly scale count 1 --max-per-region 1` — верхняя граница инстансов: ровно
-   одна машина. Границу задаёт runtime-команда: в схеме `fly.toml` у Fly нет
-   ключа `max_machines_running`, поэтому в конфиге зафиксирован только минимум
-   (`min_machines_running = 1`).
-   **Не масштабируйте больше одной машины:** state живёт в памяти процесса, а
-   записи сериализуются одним in-process мьютексом — второй инстанс ломает
-   single-writer-контракт и рассинхронизирует данные
-   ([ADR-0001](docs/adr/0001-in-memory-store-with-restart-reset.md),
-   [ADR-0002](docs/adr/0002-single-writer-in-memory-store.md)).
-5. `scripts/production-smoke.sh https://booking-api.fly.dev` — post-deploy
-   smoke (тикет #57): скрипт выводит тот же канонический URL из `fly.toml`.
+1. `railway login` — авторизация в Railway (OAuth, браузер).
+2. `railway link` — привязка каталога к проекту `booking-api` и окружению
+   `production`.
+3. `railway config plan` — dry-run: какие изменения конфиг внесёт в окружение.
+4. `railway config apply` — применение конфига: Railway пересобирает образ из
+   `Dockerfile` и перезапускает сервис.
+5. `railway variable set KEY=value` — секреты живут вне репозитория, runbook:
+   [Secrets](docs/agents/production-secrets.md). Для повторного деплоя текущего
+   коммита — `railway redeploy`.
+6. `scripts/production-smoke.sh` — post-deploy smoke (тикет #57): скрипт берёт
+   тот же канонический URL из `.railway/production.json`.
+
+**Не масштабируйте больше одной реплики:** state живёт в памяти процесса, а
+записи сериализуются одним in-process мьютексом — вторая реплика ломает
+single-writer-контракт и рассинхронизирует данные
+([ADR-0001](docs/adr/0001-in-memory-store-with-restart-reset.md),
+[ADR-0002](docs/adr/0002-single-writer-in-memory-store.md)).
 
 DNS-записи, custom domain и TLS-сертификат — runbook
 [docs/agents/production-dns-tls.md](docs/agents/production-dns-tls.md) (тикет #56).
 
+### UI на том же домене
+
+Сервис отдаёт **и API, и собранный фронтенд** на одном адресе — решение
+[ADR-0006](docs/adr/0006-single-origin-spa.md). Отдельного деплоя под UI нет и не
+планируется: второй origin означал бы CORS, второй домен и второй деплой.
+
+| Запрос                                  | Ответ                                            |
+| --------------------------------------- | ------------------------------------------------ |
+| `GET /` (без `Accept: text/html`)       | `{"hello":"world"}` — контракт API из спеки      |
+| `GET /` (браузер, `Accept: text/html`)  | оболочка SPA — открывается интерфейс             |
+| `GET /assets/…`                         | статика сборки, `cache-control: immutable`       |
+| `GET /admin/event-types` (браузер)      | оболочка SPA — клиентский маршрут (SPA-fallback) |
+| `GET /config`, `/meeting-types`, …      | API, канонические пути из `spec/*.tsp`           |
+| `GET /api/config`, `/api/meeting-types` | тот же API: алиас-префикс `/api/*`               |
+
+Алиас `/api/*` нужен фронтенду: в dev его снимает Vite-прокси, в production — сам
+backend (`src/routes/api.ts`). Канонические пути API при этом не меняются, спека
+`spec/*.tsp` и `openapi.yaml` не трогаются.
+
 ### Post-deploy smoke
 
-Шаг 5 последовательности деплоя — smoke-проверка живого инстанса
+Шаг 6 последовательности деплоя — smoke-проверка живого инстанса
 (скрипт [`scripts/production-smoke.sh`](scripts/production-smoke.sh), тикет #57):
 
 ```bash
-scripts/production-smoke.sh                              # default URL — из fly.toml
-scripts/production-smoke.sh https://booking-api.fly.dev   # явный URL
+scripts/production-smoke.sh                              # default URL — из .railway/production.json
+scripts/production-smoke.sh https://booking-api-production-b3a4.up.railway.app   # явный URL
 ```
 
-Без аргумента скрипт берёт base URL из ключа `app` в [`fly.toml`](fly.toml)
-(`https://<app>.fly.dev`): канонический адрес не зашит в скрипт, поэтому
-переименование приложения не оставляет скрипт со старым URL. Явный аргумент
-(`http://…` или `https://…`) пригодится для проверки против локальной копии.
+Без аргумента скрипт берёт base URL из поля `publicUrl` манифеста окружения
+[`.railway/production.json`](.railway/production.json): канонический адрес не
+зашит в скрипт, поэтому пересоздание окружения не оставляет скрипт со старым
+URL. Явный аргумент (`http://…` или `https://…`) пригодится для проверки
+против локальной копии.
 
 Что проверяется:
 
-| Эндпоинт             | Ожидание                           |
-| -------------------- | ---------------------------------- |
-| `GET /`              | 200                                |
-| `GET /health`        | 200, тело содержит `"status":"ok"` |
-| `GET /config`        | 200, тело — валидный JSON          |
-| `GET /meeting-types` | 200, тело — валидный JSON-массив   |
+| Эндпоинт                                       | Ожидание                                            |
+| ---------------------------------------------- | --------------------------------------------------- |
+| `GET /`                                        | 200                                                 |
+| `GET /health`                                  | 200, тело содержит `"status":"ok"`                  |
+| `GET /config`                                  | 200, тело — валидный JSON                           |
+| `GET /meeting-types`                           | 200, тело — валидный JSON-массив                    |
+| `GET /` (`Accept: text/html`)                  | 200, `content-type: text/html` — оболочка SPA       |
+| `GET /admin/event-types` (`Accept: text/html`) | 200, `content-type: text/html` — клиентский маршрут |
 
 Пустой массив `[]` в `/meeting-types` — норма для свежего деплоя. Непустой
 массив — только WARNING (инстанс, на котором уже есть типы встречи, —
 норма), падением считаются не-массив, невалидный JSON и не-2xx.
+
+Последние две проверки — UI: сервис отдаёт и API, и собранный фронтенд на одном
+домене ([ADR-0006](docs/adr/0006-single-origin-spa.md)). Запрос идёт с
+`Accept: text/html` — так его отправляет браузер, — поэтому проверка видит
+именно оболочку приложения, а не JSON-API.
 
 Коды возврата: `0` — все проверки прошли (`✅ PASS`), non-zero — есть
 провалившиеся проверки (`❌ FAIL` со списком упавших эндпоинтов).
@@ -337,8 +391,8 @@ scripts/production-smoke.sh https://booking-api.fly.dev   # явный URL
 Требования к окружению: `bash`, `curl` и `node` — `node` валидирует JSON
 (`jq` может отсутствовать). Ставить ничего не нужно.
 
-Retry-loop как safety net: при rolling-деплое Fly Proxy коротко отдаёт 502,
-пока машина перезапускается, поэтому каждая проверка повторяется до
+Retry-loop как safety net: при деплое edge Railway коротко отдаёт 502, пока
+старая реплика вытесняется новой, поэтому каждая проверка повторяется до
 `SMOKE_RETRIES` раз (по умолчанию 5) с паузой `SMOKE_RETRY_DELAY` секунд
 (по умолчанию 3); номер попытки печатается в лог. Скорость повторов
 настраивается переменными окружения:
@@ -347,38 +401,34 @@ Retry-loop как safety net: при rolling-деплое Fly Proxy коротк
 SMOKE_RETRIES=10 SMOKE_RETRY_DELAY=5 scripts/production-smoke.sh
 ```
 
-### Если имя `booking-api` на fly.io занято
+### Если нужно переименовать проект
 
-Имя Fly-приложения глобально-уникально: если `booking-api` уже занят, владелец
-релиза правит ключ `app` в [`fly.toml`](fly.toml) и обновляет URL в этом же
-разделе — одна правка, один PR. До синхронизации записей drift-тест падает:
-адрес в репозитории и фактический деплой разойдутся.
+Имя проекта на Railway не глобально-уникально, но оно входит в платформенный
+домен: при переименовании адрес меняется. Владелец релиза правит
+[`.railway/production.json`](.railway/production.json) (`publicUrl`) и адрес в
+этом же разделе — одна правка, один PR. До синхронизации записей drift-тест
+падает: адрес в репозитории и фактический деплой разойдутся.
 
 ## DNS / TLS
 
-Публичный домен и HTTPS-сертификат booking-api на Fly.io. Полный runbook для
-владельца релиза — [docs/agents/production-dns-tls.md](docs/agents/production-dns-tls.md)
+Публичный домен и HTTPS-сертификат booking-api на Railway.io. Полный runbook
+для владельца релиза — [docs/agents/production-dns-tls.md](docs/agents/production-dns-tls.md)
 (тикет #56).
 
 Коротко:
 
-1. **Имя приложения** — глобально-уникально; берётся из ключа `app` в
-   [`fly.toml`](fly.toml). Если имя занято — создать другое и **в том же PR**
-   поправить `app` (канонический URL — тикет #62).
-2. **DNS-запись** — для поддомена (`booking.example.com`) CNAME на
-   `<app>.fly.dev`; для apex (`example.com`) — A + AAAA на адреса приложения
-   (`fly ips list`). CNAME на apex невозможен; схемы CNAME и A/AAAA не
-   смешивают.
-3. **Сертификат** — `fly certs add booking.example.com`: Fly сам выпускает
-   managed Let's Encrypt-сертификат и сам его обновляет (внешний ACME-cron не
-   нужен).
-4. **HTTP→HTTPS redirect** — ключ `force_https = true` в `[http_service]`
-   [`fly.toml`](fly.toml) (вступает в силу после `fly deploy`).
-5. **Проверки** — `https://booking.example.com/` → 200, `/health` → 200
-   `{"status":"ok"}`, `/config` → 200 Configuration JSON.
+1. **Платформенный домен** — Railway выдаёт `*.up.railway.app` с managed TLS
+   автоматически: сертификат выпускает и обновляет сама платформа, внешний
+   ACME-cron не нужен. Фактический адрес окружения зафиксирован в
+   [`.railway/production.json`](.railway/production.json).
+2. **Custom domain** (вне scope v1) — CNAME на платформенный домен; Railway
+   сам выпускает и обновляет сертификат для custom domain. Делегировать
+   `example.com` владелец не может, поэтому в v1 развёрнут платформенный домен.
+3. **Проверки** — `https://…/` → 200, `/health` → 200 `{"status":"ok"}`,
+   `/config` → 200 Configuration JSON.
 
-Диагностика (pending-сертификат, несошедшийся DNS, CAA-записи, 502/health-check)
-и процедура отката — в runbook'е.
+Диагностика (pending-сертификат, несошедшийся DNS, 502/health-check) и
+процедура отката — в runbook'е.
 
 ## UI / E2E
 
@@ -391,6 +441,19 @@ Frontend и end-to-end тесты — отдельная итерация кар
 - `npm run gen:sdk` — регенерировать `web/src/api/sdk.ts` из `openapi.yaml` (генератор `openapi-typescript@7.13.0`, тикет #29). Прогон обязателен после любой правки `spec/*.tsp` и после изменения `openapi.yaml` релизом — см. AGENTS.md rule #9.
 - `npm run test:e2e` — Playwright end-to-end против реального Fastify-сервера (Wave C, тикет #34). Сам поднимает backend через `playwright.config.ts::webServer` (Fastify на `E2E_API_PORT`, по умолчанию 3030) и Vite dev-сервер на 5173; внешний `make start` не требуется ни локально, ни в CI.
 - `npm run test:e2e:install` — `npx playwright install --with-deps chromium`, разовая установка браузера для e2e.
+
+### Где живёт фронтенд в production
+
+В production фронтенд **не отдельный деплой**: тот же сервис отдаёт собранный `web/dist`
+вместе с API на одном домене ([ADR-0006](docs/adr/0006-single-origin-spa.md), раздел
+«UI на том же домене»). Практические следствия для фронтенд-инженера:
+
+- Пути API в клиентском коде остаются с префиксом `/api` — в dev его срезает
+  Vite-прокси, в production backend-алиас. Менять клиентские `fetch` не нужно.
+- Клиентские маршруты (`/book/:id`, `/admin/event-types`) обслуживает SPA-fallback:
+  сервер отдаёт для них `index.html`, а не 404.
+- `npm run build:web` нужен только для локальной проверки; в образ фронтенд
+  собирается сам (стадия `web-builder` в `Dockerfile`).
 
 ### Волны карты #26
 

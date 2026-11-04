@@ -4,7 +4,21 @@ Backend из cart #1 (Booking API v1) доставлен как Docker image в 
 
 ## Status
 
-accepted
+superseded by [ADR-0005](0005-hosting-platform-railway.md) (2026-11-04)
+
+> **ADR устарел.** Размещение на Fly.io не состоялось: в окружении владельца релиза
+> нет Fly-аккаунта, `flyctl` и `FLY_API_TOKEN`, а MCP-коннект к Fly.io отдавал
+> только read-скоупы Managed Postgres — создать приложение и задеплоить через него
+> было нельзя, поэтому AC #56 (живой DNS + TLS) и #57 (smoke против реального URL)
+> оказались невыполнимыми. Платформа заменена на **Railway.io** — см.
+> [ADR-0005](0005-hosting-platform-railway.md): конфиг стал
+> [`.railway/railway.ts`](../../.railway/railway.ts) (Railway Infrastructure as
+> Code), `fly.toml` удалён из репозитория.
+>
+> Документ ниже сохранён как историческая запись research-сессии: описание
+> кандидатов, сравнительная матрица и сверка pricing остаются верными для
+> Fly.io, но **не описывают текущее размещение**. Актуальные решения, конфиг и
+> runbook'и — в ADR-0005.
 
 ## Контекст
 

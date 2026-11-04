@@ -2,13 +2,19 @@
  * Дрейф-шит «код ↔ production-документация секретов» (тикет #55).
  *
  * Смысл: `.env.example` и `docs/agents/production-secrets.md` обязаны описывать
- * ровно те переменные окружения, которые реально читает backend-код. Иначе
- * документация молча устаревает: переменная появляется в `src/`, а в
+ * ровно те переменные окружения, которые реально читает backend-код, а
+ * `.railway/railway.ts` — выставлять в production ровно те, которые должен.
+ * Иначе документация молча устаревает: переменная появляется в `src/`, а в
  * `.env.example` её нет — и production-деплой ведёт себя не так, как ожидает
  * разработчик.
  *
+ * Модель секретов (находка F1 аудита карты #52): `OWNER_*` — **не секреты**
+ * (они публично отдаются в `GET /config`), поэтому живут в `env` IaC-конфига
+ * и в `.env.example`. Настоящих секретов в v1 нет; механизм для будущих
+ * секретов — `railway variable set` / sealed variables на платформе.
+ *
  * Источник истины — литерал `EXPECTED_ENV_VARS` ниже: он продублирован из
- * acceptance criteria тикета #55 и из ADR-0004, а **не** вычисляется из кода.
+ * acceptance criteria тикета #55 и из ADR-0005, а **не** вычисляется из кода.
  * Списки, выведенные из кода, проверяются против этого литерала — так тест
  * не тавтологичен (см. tdd-скилл: expected values must come from an
  * independent source of truth).
@@ -26,7 +32,7 @@ const REPO_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 /**
  * Env-vars, которые читает backend-код: `PORT`/`HOST` — из `process.env`
  * (`src/server.ts`), `OWNER_*` — из `EnvSource` (`src/config/owner.ts`).
- * Продублировано из acceptance criteria тикета #55 и из ADR-0004.
+ * Продублировано из acceptance criteria тикета #55 и из ADR-0005.
  */
 const CODE_ENV_VARS = [
   "PORT",
@@ -41,9 +47,9 @@ const CODE_ENV_VARS = [
 
 /**
  * Env-vars, которые выставляет платформа, а не код: `NODE_ENV` приходит из
- * `Dockerfile` / `fly.toml [env]`. В production-контракт (ADR-0004) он входит,
- * поэтому обязан быть и в `.env.example`, и в runbook — но читается он не
- * backend-кодом, и в первом списке его нет.
+ * `Dockerfile` / `env` в `.railway/railway.ts`. В production-контракт
+ * (ADR-0005) он входит, поэтому обязан быть и в `.env.example`, и в runbook —
+ * но читается он не backend-кодом, и в первом списке его нет.
  */
 const PLATFORM_ENV_VARS = ["NODE_ENV"] as const;
 
@@ -63,9 +69,23 @@ const EXPECTED_ENV_VARS = [
   { name: "OWNER_WORKING_HOURS_END", values: ["18:00"] },
 ] as const;
 
+/**
+ * Переменные, которые **не** являются секретами: их значения публично
+ * отдаёт `GET /config`, «секретность» им ничего не даёт (находка F1).
+ */
+const PUBLIC_ENV_VARS = [
+  "OWNER_NAME",
+  "OWNER_TIMEZONE",
+  "OWNER_WINDOW_DAYS",
+  "OWNER_SLOT_STEP_MINUTES",
+  "OWNER_WORKING_HOURS_START",
+  "OWNER_WORKING_HOURS_END",
+] as const;
+
 const ENV_EXAMPLE_PATH = join(REPO_ROOT, ".env.example");
 const SECRETS_DOC_PATH = join(REPO_ROOT, "docs/agents/production-secrets.md");
 const README_PATH = join(REPO_ROOT, "README.md");
+const IAC_PATH = join(REPO_ROOT, ".railway/railway.ts");
 
 /** Все `.ts`-файлы `src/` — рекурсивно. */
 function listSourceFiles(dir: string): string[] {
@@ -136,6 +156,21 @@ function findDocRow(doc: string, varName: string): string | undefined {
       const cells = line.split("|").map((cell) => cell.trim());
       return cells[1]?.includes(needle) ?? false;
     });
+}
+
+/**
+ * Ключи `env` из `.railway/railway.ts` — разбираем блок `env: { … }` вручную:
+ * формат файла фиксирован этим же репозиторием, а лишний парсер не нужен.
+ */
+function readIaCEnvKeys(source: string): string[] {
+  const start = source.indexOf("env: {");
+  if (start === -1) return [];
+  const end = source.indexOf("}", start);
+  if (end === -1) return [];
+
+  return [...source.slice(start + "env: {".length, end).matchAll(/^\s*([A-Z_][A-Z0-9_]*):/gm)].map(
+    (match) => match[1] as string,
+  );
 }
 
 /** `git ls-files` — список отслеживаемых файлов; `null`, если git недоступен. */
@@ -212,6 +247,20 @@ describe("drift seam: .env.example ↔ код", () => {
   });
 });
 
+describe("drift seam: .railway/railway.ts ↔ .env.example (#55)", () => {
+  const iacEnvKeys = readIaCEnvKeys(readFileSync(IAC_PATH, "utf8"));
+
+  it("IaC-конфиг выставляет все переменные из `.env.example`, кроме `PORT`", () => {
+    // `PORT` Railway инжектит сам — задавать его в конфиге не нужно.
+    const expected = expectedNames.filter((name) => name !== "PORT");
+    expect([...iacEnvKeys].toSorted()).toEqual([...expected].toSorted());
+  });
+
+  it("`PORT` в IaC-конфиге не задан", () => {
+    expect(iacEnvKeys).not.toContain("PORT");
+  });
+});
+
 describe("drift seam: docs/agents/production-secrets.md ↔ код", () => {
   const doc = existsSync(SECRETS_DOC_PATH) ? readFileSync(SECRETS_DOC_PATH, "utf8") : "";
 
@@ -230,20 +279,34 @@ describe("drift seam: docs/agents/production-secrets.md ↔ код", () => {
     });
   }
 
+  for (const name of PUBLIC_ENV_VARS) {
+    it(`\`${name}\` помечен как НЕ секрет (модель F1: значение публично в /config)`, () => {
+      const row = findDocRow(doc, name);
+      expect(row, `в runbook нет строки таблицы с \`${name}\``).toBeDefined();
+      expect(row?.toLowerCase()).toContain("не секрет");
+    });
+  }
+
+  it("runbook не велит выставлять публичные `OWNER_*` через секреты", () => {
+    // Команда вида `railway variable set OWNER_NAME=…` противоречила бы
+    // модели «OWNER_* — не секреты» (находка F1 аудита).
+    expect(doc).not.toMatch(/railway\s+variable\s+set\s+OWNER_/i);
+  });
+
   it("runbook называет платформу и способ настройки секретов", () => {
-    expect(doc).toContain("Fly.io");
-    expect(doc).toContain("fly secrets set");
-    expect(doc).toContain("fly secrets list");
-    expect(doc).toContain("fly secrets unset");
+    expect(doc).toContain("Railway");
+    expect(doc).toContain("railway variable set");
+    expect(doc).toContain("railway variable list");
+    expect(doc).toContain("railway variable delete");
   });
 
-  it("runbook описывает batch-импорт секретов из файла", () => {
-    expect(doc).toContain("fly secrets import");
+  it("runbook описывает sealed variables — платформенный механизм секретов", () => {
+    expect(doc.toLowerCase()).toContain("sealed");
   });
 
-  it("runbook разделяет секреты и несекретный `fly.toml [env]`", () => {
-    expect(doc).toContain("fly.toml");
-    expect(doc).toContain("[env]");
+  it("runbook разделяет секреты и несекретный `env` IaC-конфига", () => {
+    expect(doc).toContain(".railway/railway.ts");
+    expect(doc).toContain("env");
   });
 
   it("runbook фиксирует rotation policy и реакцию на утечку", () => {
@@ -251,8 +314,8 @@ describe("drift seam: docs/agents/production-secrets.md ↔ код", () => {
     expect(doc.toLowerCase()).toContain("утечк");
   });
 
-  it("runbook ссылается на ADR-0004 и тикет #54", () => {
-    expect(doc).toContain("ADR-0004");
+  it("runbook ссылается на ADR-0005 и тикет #54", () => {
+    expect(doc).toContain("ADR-0005");
     expect(doc).toContain("#54");
   });
 
@@ -287,6 +350,11 @@ describe("drift seam: README ↔ runbook", () => {
         /имена\s+переменных/,
       );
     }
+  });
+
+  it("README «Secrets» называет платформу Railway", () => {
+    const secretsSection = readmeSection(readme, "Secrets");
+    expect(secretsSection).toContain("Railway");
   });
 });
 

@@ -1,105 +1,94 @@
 /**
  * Дрейф-шит «публичный URL приложения ↔ запись в репозитории» (тикет #62).
  *
- * Смысл: после `fly deploy` у приложения появляется публичный адрес
- * `https://<app>.fly.dev`, где `<app>` — top-level ключ `app` в `fly.toml`.
- * Fly выдаёт этот адрес автоматически, даже без custom domain. Если адрес
- * не зафиксировать в репозитории, он остаётся tribal knowledge; если
- * зафиксировать вручную — расходится с фактическим деплоем (имя на fly.io
- * может быть занято, приложение переименуют).
+ * Смысл: после деплоя на Railway у сервиса есть публичный адрес
+ * `https://<project>-<env>-<suffix>.up.railway.app`. Адрес генерирует сама
+ * платформа, и в IaC-конфиг он **не** попадает (так же и при
+ * `railway config pull` — импортёр выкидывает сгенерированные домены).
+ * Поэтому единственным источником истины в репозитории стал манифест
+ * окружения — `.railway/production.json` (поле `publicUrl`).
  *
- * Источник истины — `fly.toml`: имя Fly-приложения. README-раздел
- * «Production deploy» — единственное место, где адрес записан для людей.
- * Тест проверяет, что обе записи совпадают и что в разделе нет секретов.
- *
- * TOML-парсера в зависимостях нет (новые deps не добавляем), поэтому разбор
- * минимальный, построчный: top-level key/value до первой секции (общий
- * помощник — `test/helpers/toml.ts`). Этого хватает, потому что формат
- * `fly.toml` в этом репозитории зафиксирован контрактным тестом
- * `test/fly-toml.test.ts`.
+ * Если адрес не зафиксировать, он остаётся tribal knowledge; если
+ * зафиксировать в двух местах вручную — разъедется с фактическим деплоем.
+ * README-раздел «Production deploy» — единственное место, где адрес записан
+ * для людей. Тест проверяет, что обе записи совпадают и что в разделе нет
+ * секретов.
  */
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readmeSection } from "./helpers/readme.js";
 import { secretValueHits } from "./helpers/secrets.js";
-import { readTopLevelStringKey } from "./helpers/toml.js";
 
 const REPO_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 
-const FLY_TOML_PATH = join(REPO_ROOT, "fly.toml");
+const MANIFEST_PATH = join(REPO_ROOT, ".railway/production.json");
 const README_PATH = join(REPO_ROOT, "README.md");
 
 /** Заголовок раздела README — место-источник правды о публичном URL. */
 const README_SECTION = "Production deploy";
 
-/**
- * Top-level ключ `app` из `fly.toml` — имя Fly-приложения.
- * `undefined`, если такого ключа нет.
- */
-function readFlyApp(): string | undefined {
-  return readTopLevelStringKey(readFileSync(FLY_TOML_PATH, "utf8"), "app");
-}
+const manifest = JSON.parse(readFileSync(MANIFEST_PATH, "utf8")) as { publicUrl?: string };
+const canonicalUrl = manifest.publicUrl ?? "";
 
-const flyApp = readFlyApp();
 const readme = readFileSync(README_PATH, "utf8");
 const section = readmeSection(readme, README_SECTION);
 
-/** Канонический публичный URL приложения — производная от имени в `fly.toml`. */
-const canonicalUrl = flyApp === undefined ? "" : `https://${flyApp}.fly.dev`;
-
-/** Все host'ы вида `<label>.fly.dev`, упомянутые в README. */
-function flyDevHosts(text: string): string[] {
-  return [...text.matchAll(/https:\/\/([a-z0-9-]+)\.fly\.dev/g)].map((match) => match[1]);
+/**
+ * Все host'ы вида `*.up.railway.app`, упомянутые в тексте. Ищем и с
+ * протоколом, и без — чтобы «голый» хост в README тоже попал в выборку.
+ */
+function railwayHosts(text: string): string[] {
+  const matches = [
+    ...text.matchAll(/(?:https:\/\/)?([a-z0-9-]+(?:\.[a-z0-9-]+)*\.up\.railway\.app)/g),
+  ];
+  return matches.map((match) => match[1] as string);
 }
 
-describe("drift seam: fly.toml ↔ имя Fly-приложения", () => {
-  it("в `fly.toml` есть top-level ключ `app`", () => {
-    expect(flyApp, "в `fly.toml` нет top-level ключа `app`").toBeTypeOf("string");
+/** Хост канонического URL — без протокола и с путём. */
+function hostOf(url: string): string {
+  return url.replace(/^https?:\/\//, "").split("/")[0] ?? "";
+}
+
+describe("drift seam: манифест окружения ↔ канонический URL", () => {
+  it("манифест `.railway/production.json` существует", () => {
+    expect(existsSync(MANIFEST_PATH)).toBe(true);
   });
 
-  it("`app` непустое", () => {
-    expect((flyApp ?? "").trim()).not.toBe("");
+  it("в манифесте есть непустой `publicUrl`", () => {
+    expect(canonicalUrl.trim()).not.toBe("");
   });
 
-  it("`app` — DNS-валидный label (латиница в нижнем регистре, цифры, дефис)", () => {
-    const app = flyApp ?? "";
-    // RFC 1123 label: строчные буквы/цифры/дефис, без подчёркиваний, 1–63 символа.
-    expect(app).toMatch(/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/);
-    expect(app.length).toBeGreaterThan(0);
-    expect(app.length).toBeLessThanOrEqual(63);
-    expect(app).not.toContain("_");
-  });
-
-  it("канонический URL собирается из `app` в формате Fly", () => {
-    expect(canonicalUrl).toMatch(/^https:\/\/[a-z0-9-]+\.fly\.dev$/);
+  it("`publicUrl` — HTTPS-адрес платформенного домена Railway", () => {
+    expect(canonicalUrl).toMatch(/^https:\/\/[a-z0-9-]+(?:\.[a-z0-9-]+)*\.up\.railway\.app$/);
   });
 });
 
-describe("drift seam: README «Production deploy» ↔ fly.toml", () => {
+describe("drift seam: README «Production deploy» ↔ манифест окружения", () => {
   it("README содержит раздел «Production deploy»", () => {
     expect(readme).toMatch(/^##\s+Production deploy\s*$/m);
     expect(section).not.toBe("");
   });
 
-  it("в разделе дословно записан канонический URL из `fly.toml`", () => {
+  it("в разделе дословно записан канонический URL из манифеста", () => {
     expect(section).toContain(canonicalUrl);
   });
 
-  it("в README нет чужих URL этого хоста (только имя из `fly.toml`)", () => {
-    const hosts = [...new Set(flyDevHosts(readme))];
-    expect(hosts).toEqual([flyApp]);
+  it("в README нет чужих адресов Railway (только канонический host)", () => {
+    const hosts = [...new Set(railwayHosts(readme))];
+    expect(hosts).toEqual([hostOf(canonicalUrl)]);
   });
 
-  it("раздел объясняет, что URL выводится из ключа `app` в `fly.toml`", () => {
-    expect(section).toContain("fly.toml");
-    expect(section).toContain("`app`");
+  it("раздел объясняет, что адрес берётся из манифеста окружения", () => {
+    expect(section).toContain(".railway/production.json");
+    expect(section).toContain("`publicUrl`");
   });
 
-  it("раздел описывает последовательность деплоя", () => {
-    expect(section).toContain("fly apps create");
-    expect(section).toContain("fly deploy");
+  it("раздел описывает последовательность деплоя на Railway", () => {
+    expect(section).toContain("railway login");
+    expect(section).toContain("railway link");
+    expect(section).toContain("railway config apply");
   });
 
   it("раздел ссылается на runbook'и деплоя", () => {
@@ -108,8 +97,12 @@ describe("drift seam: README «Production deploy» ↔ fly.toml", () => {
     expect(section).toContain("scripts/production-smoke.sh");
   });
 
-  it("раздел объясняет, что делать, если имя приложения на fly.io занято", () => {
-    expect(section).toMatch(/уникальн/i);
+  it("раздел ссылается на ADR-0005 — решение о платформе", () => {
+    expect(section).toContain("docs/adr/0005-hosting-platform-railway.md");
+  });
+
+  it("раздел отсылает к манифесту, а не к удалённому `fly.toml`", () => {
+    expect(section).not.toContain("fly.toml");
   });
 });
 

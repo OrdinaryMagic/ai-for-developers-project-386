@@ -27,18 +27,24 @@ const MCP_DOC_PATH = join(REPO_ROOT, "docs/agents/production-mcp.md");
 /**
  * Ключи, допустимые у `mcp` в OpenCode V2. Всё остальное — устаревшая
  * V1-форма, где сервер объявлялся прямо в `mcp.<name>`.
+ *
+ * `enabled` — глобальный тумблер MCP (валиден по схеме
+ * <https://opencode.ai/config.json>), его наличие ошибкой не считается.
  */
-const CANONICAL_MCP_KEYS = ["servers", "timeout"];
+const CANONICAL_MCP_KEYS = ["servers", "timeout", "enabled"];
 
-/** Что ждём от `fly-mcp` (AC тикета #63): remote + публичный URL, OAuth по умолчанию. */
-const FLY_MCP_SERVER = { type: "remote", url: "https://mcp.fly.io" } as const;
+/**
+ * Что ждём от `railway-mcp` (AC тикета #63): remote + публичный URL, OAuth
+ * по умолчанию. URL — официальный hosted-сервер Railway.
+ */
+const RAILWAY_MCP_SERVER = { type: "remote", url: "https://mcp.railway.com" } as const;
 
 /** Что ждём от `shadcn` после миграции формы — команда запуска не меняется. */
 const SHADCN_COMMAND = ["npx", "-y", "shadcn@latest", "mcp"];
 
 /** Команды, которые обязаны быть в инструкции (AC тикета #63). */
-const CONNECT_COMMAND = "opencode mcp add --global fly-mcp --url https://mcp.fly.io";
-const AUTH_COMMAND = "opencode mcp auth fly-mcp";
+const CONNECT_COMMAND = "opencode mcp add --global railway-mcp --url https://mcp.railway.com";
+const AUTH_COMMAND = "opencode mcp auth railway-mcp";
 
 type McpServerEntry = {
   type?: string;
@@ -80,7 +86,7 @@ describe("drift seam: .opencode/opencode.json — форма V2", () => {
   it("серверы объявлены в каноническом V2-пути `mcp.servers`", () => {
     const servers = config.mcp?.servers;
     expect(servers, "в конфиге нет `mcp.servers`").toBeTypeOf("object");
-    expect(Object.keys(servers ?? {})).toContain("fly-mcp");
+    expect(Object.keys(servers ?? {})).toContain("railway-mcp");
   });
 
   it("устаревшая V1-форма `mcp.<name>` не используется", () => {
@@ -93,14 +99,14 @@ describe("drift seam: .opencode/opencode.json — форма V2", () => {
 describe("drift seam: .opencode/opencode.json — состав серверов", () => {
   const servers = config.mcp?.servers ?? {};
 
-  it("`fly-mcp` — remote-сервер Fly.io с публичным URL", () => {
-    expect(servers["fly-mcp"]).toMatchObject(FLY_MCP_SERVER);
+  it("`railway-mcp` — remote-сервер Railway с публичным URL", () => {
+    expect(servers["railway-mcp"]).toMatchObject(RAILWAY_MCP_SERVER);
   });
 
-  it("`fly-mcp` не содержит заголовков с кредом и не отключает OAuth", () => {
-    const fly = servers["fly-mcp"] ?? {};
-    expect(fly.headers).toBeUndefined();
-    expect(fly.oauth).toBeUndefined();
+  it("`railway-mcp` не содержит заголовков с кредом и не отключает OAuth", () => {
+    const railway = servers["railway-mcp"] ?? {};
+    expect(railway.headers).toBeUndefined();
+    expect(railway.oauth).toBeUndefined();
   });
 
   it("`shadcn` остался в списке серверов (миграция формы, не удаление)", () => {
@@ -110,7 +116,11 @@ describe("drift seam: .opencode/opencode.json — состав серверов"
   });
 
   it("состав серверов совпадает с ожидаемым", () => {
-    expect(Object.keys(servers).toSorted()).toEqual(["fly-mcp", "shadcn"]);
+    expect(Object.keys(servers).toSorted()).toEqual(["railway-mcp", "shadcn"]);
+  });
+
+  it("прежний `fly-mcp` убран — платформа размещения теперь Railway", () => {
+    expect(Object.keys(servers)).not.toContain("fly-mcp");
   });
 });
 
@@ -134,7 +144,7 @@ describe("drift seam: README ↔ проектная MCP-конфигурация
     expect(section).not.toBe("");
   });
 
-  it("раздел «MCP» объясняет, как подключить `fly-mcp`", () => {
+  it("раздел «MCP» объясняет, как подключить `railway-mcp`", () => {
     expect(section).toContain(CONNECT_COMMAND);
   });
 
@@ -149,6 +159,10 @@ describe("drift seam: README ↔ проектная MCP-конфигурация
 
   it("раздел «MCP» ссылается на runbook по MCP", () => {
     expect(section).toContain("docs/agents/production-mcp.md");
+  });
+
+  it("раздел «MCP» больше не упоминает `fly-mcp`", () => {
+    expect(section).not.toContain("fly-mcp");
   });
 });
 
@@ -165,11 +179,15 @@ describe("drift seam: runbook MCP ↔ проектная MCP-конфигура�
   });
 
   it("runbook фиксирует тот же публичный URL, что и конфиг", () => {
-    expect(doc).toContain(FLY_MCP_SERVER.url);
+    expect(doc).toContain(RAILWAY_MCP_SERVER.url);
   });
 
   it("runbook говорит, что OAuth-токены хранятся вне репозитория", () => {
     expect(doc).toMatch(/вне\s+репозитория/i);
     expect(doc).toContain("OAuth");
+  });
+
+  it("runbook ссылается на ADR-0005", () => {
+    expect(doc).toContain("ADR-0005");
   });
 });

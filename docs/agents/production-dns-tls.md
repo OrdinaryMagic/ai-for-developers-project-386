@@ -1,431 +1,237 @@
-# Production DNS + TLS: runbook
+# Public DNS + TLS — booking-api v1 (Railway.io)
 
-Как booking-api v1 получает публичный домен и HTTPS-сертификат на Fly.io: какие
-DNS-записи ставить, как выдаётся сертификат, как включить HTTP→HTTPS redirect и
-как проверить, что всё работает.
+Runbook для владельца релиза: как booking-api v1 получает публичный домен и
+HTTPS-сертификат на Railway, как проверить результат и что делать, если
+сертификат не выпустился или DNS не сошёлся.
 
-- **Платформа:** Fly.io — решение принято в
-  [ADR-0004](../adr/0004-hosting-platform.md).
-- **Конфиг приложения:** [`fly.toml`](../../fly.toml) в корне репозитория.
-- **Правило:** DNS-записи живут в зоне домена, сертификат — в управляемом хранилище
-  Fly. В репозитории остаётся только процедура (этот файл) и ключ
-  `force_https` в `fly.toml`. Секретов (и значений сертификата) в репозитории
-  нет — см. [production-secrets.md](production-secrets.md).
+- **Платформа:** Railway.io — решение принято в
+  [ADR-0005](../adr/0005-hosting-platform-railway.md) (ADR-0004 про Fly.io
+  помечен как superseded).
+- **Конфиг приложения:** [`.railway/railway.ts`](../../.railway/railway.ts) —
+  health-check, лимиты, реплики (тикет #54).
+- **Манифест окружения:** [`.railway/production.json`](../../.railway/production.json) —
+  IDs окружения и фактический публичный адрес.
 
-Тикет: #56 «Public DNS + TLS». Соседние тикеты карты #52: #54 — `fly.toml`,
-#55 — секреты, #57 — post-deploy smoke, #62 — канонический публичный URL в
-репозитории.
+Тикет: #56 «Public DNS + TLS». Соседние тикеты карты #52: #54 — deploy-конфиг,
+#55 — секреты, #57 — post-deploy smoke.
 
-> **Статус процедуры.** В среде разработки нет живого Fly-аккаунта и реального
-> домена, поэтому фактическое provisioning не выполнялся: все шаги ниже —
-> инструкция владельцу релиза, а не отчёт о выполненных действиях. Каждый шаг
-> проверен по документации Fly (сверено **2026-11-04**, ссылки в разделе
-> «Связи»).
+> **Статус процедуры.** Production-окружение **развёрнуто**: сервис `booking-api`
+> в окружении `production`, платформенный домен с managed TLS отвечает 200 на
+> `/`, `/health` и `/config`. Кастомный домен `booking.example.com` (placeholder
+> из AC #56) **не делегируется** владельцем, поэтому в v1 развёрнут
+> платформенный домен Railway; процедура подключения custom domain описана
+> ниже и срабатывает, когда появится реальный домен.
 
-## Коротко
-
-```bash
-# 0. Приложение Fly (имя глобально-уникально) — см. шаг 0.
-fly apps create booking-api
-fly status                      # фактический hostname приложения
-
-# 1. Тип DNS-записи: CNAME для поддомена, A+AAAA для apex (см. шаг 1).
-# 2. Адреса приложения для A/AAAA (см. шаг 2).
-fly ips list
-
-# 3. Выдача сертификата: Fly печатает нужные DNS-записи (см. шаг 3).
-fly certs add booking.example.com
-
-# 4. Статус сертификата и валидации DNS (см. шаг 4).
-fly certs check booking.example.com
-
-# 5. HTTP→HTTPS redirect — ключ force_https = true в fly.toml → fly deploy.
-
-# 5a. Верхняя граница инстансов — runtime-командой (см. шаг 5a):
-fly scale count 1 --max-per-region 1
-
-# 6. Проверки после provisioning (AC #56) — см. шаг 6.
-curl -sS -o /dev/null -w '%{http_code}\n' https://booking.example.com/          # 200
-curl -sS https://booking.example.com/health                                     # {"status":"ok"}
-curl -sS https://booking.example.com/config                                     # Configuration JSON
-```
-
-## Что нужно от владельца релиза
-
-- домен (или поддомен) и доступ к его DNS-зоне;
-- Fly-аккаунт с доступом к приложению `booking-api`;
-- приложение уже задеплоено (`fly deploy`) — без работающей машины сертификат
-  не проверить.
-
-## Шаг 0. Имя Fly-приложения (глобально-уникально)
-
-Имя приложения берётся из ключа `app` в [`fly.toml`](../../fly.toml):
-
-```toml
-app = "booking-api"
-```
-
-Имя **глобально-уникально** на fly.io: если `booking-api` уже занят, `fly apps
-create booking-api` не пройдёт. Тогда владелец:
-
-1. создаёт приложение под другим именем (`fly apps create booking-api-<суффикс>`);
-2. **в том же PR** правит ключ `app` в `fly.toml` — иначе `fly deploy` из
-   репозитория продолжит деплоить чужое/старое приложение;
-3. сверяет фактический hostname с записанным в репозитории каноническим URL
-   (`fly status`) — это требование тикета #62.
-
-Канонический публичный URL живёт в одном месте — раздел
-[«Production deploy»](../../README.md#production-deploy) в `README.md`: он
-выводится из ключа `app` в `fly.toml`, поэтому правка `app` меняет и URL в
-README. Расхождение записей (забыли поправить README или `fly.toml`) ловит
-drift-тест [`test/production-url.test.ts`](../../test/production-url.test.ts).
+## Коротко (Railway)
 
 ```bash
-fly apps create booking-api
-fly status          # фактический hostname приложения (напр. booking-api.fly.dev)
+# 1. Платформенный домен: Railway выдаёт *.up.railway.app с managed TLS сам.
+railway domain                       # сгенерировать домен для сервиса
+railway domain list --service booking-api
+railway domain status <домен>        # статус домена и DNS-детали
+
+# 2. Custom domain (когда появится реальный домен): Railway сам скажет,
+#    какие DNS-записи поставить (CNAME + TXT на подтверждение владения).
+railway domain booking.example.com
+
+# 3. Проверки живого окружения.
+scripts/production-smoke.sh
 ```
 
-## Шаг 1. Тип DNS-записи
+Railway терминирует TLS на своём edge и сам выпускает и обновляет сертификат
+для платформенного домена. Отдельный ACME-cron не нужен: ренью делает платформа.
 
-Выбор зависит от того, что именно мы хостим — поддомен или apex-домен.
+## Предусловия
 
-| Что хостим                       | Тип записи   | Куда указывает                                       | Комментарий                                                                           |
-| -------------------------------- | ------------ | ---------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| Поддомен (`booking.example.com`) | **CNAME**    | `<app>.fly.dev` (уникальный CNAME-target приложения) | Рекомендованный способ для поддоменов. Не требует знания IP, переживает смену адресов |
-| Apex-домен (`example.com`)       | **A + AAAA** | IP-адреса приложения (шаг 2)                         | CNAME на apex невозможен — см. предупреждение ниже                                    |
+- Аккаунт Railway с доступом к проекту `booking-api` и окружению `production`.
+- Сервис уже задеплоен (`railway config apply` / `railway redeploy`) — без
+  работающей реплики домен не будет отдавать трафик.
+- Для custom domain: доступ к DNS-зоне регистратора.
 
-**⚠️ CNAME на apex невозможен.** Имя с CNAME не может иметь других DNS-записей
-(у apex обязательно есть SOA/NS), поэтому CNAME-запись на корне домена
-невалидна. Часть провайдеров умеет «CNAME flattening» (ANAME/ALIAS) — Fly
-настоятельно не рекомендует такую схему: «Setting CNAME records for the apex
-domain can be problematic, and should be avoided unless your DNS provider
-supports CNAME flattening. In general, we recommend setting A/AAAA records on
-the apex domain».
+## Шаг 0. Канонический публичный адрес
 
-**Не смешивайте CNAME и A/AAAA** для одного имени: «You need either A **and**
-AAAA records, or a single CNAME record pointing to Fly (don't mix CNAME with
-A/AAAA)» — docs Fly, раздел «Troubleshoot your deployment».
+Railway генерирует платформенный домен сам, и **сгенерированные домены в
+IaC-конфиг не попадают** (то же и при `railway config pull` — импортёр их
+выкидывает). Поэтому в репозитории адрес зафиксирован отдельно — в манифесте
+окружения [`.railway/production.json`](../../.railway/production.json), поле
+`publicUrl`:
 
-Дополнительные записи, которые Fly может попросить (нужны не всегда):
+```json
+{
+  "platform": "railway",
+  "projectId": "dcdc3e6c-f49c-4040-83b8-2ced035325a4",
+  "serviceId": "0032d152-af0a-48b4-96e2-4feff1eb2c9a",
+  "environmentId": "3fce1cf2-7cd3-42f2-8288-993f1b07c0d2",
+  "environmentName": "production",
+  "region": "us-east4-eqdc4a",
+  "publicUrl": "https://booking-api-production-b3a4.up.railway.app"
+}
+```
 
-| Запись                    | Тип   | Когда нужна                                                                                                                            |
-| ------------------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `_acme-challenge.<домен>` | CNAME | DNS-01 challenge: wildcard-сертификат или выпуск сертификата **до** переключения трафика. Target — вида `example.com.XXXXX.flydns.net` |
-| `_fly-ownership.<домен>`  | TXT   | Подтверждение владения доменом: домен за CDN/прокси, свой сертификат или решение не выделять IPv6                                      |
+Манифест — источник истины для default-URL smoke-скрипта
+([`scripts/production-smoke.sh`](../../scripts/production-smoke.sh), тикет #57) и
+для README. Сверка манифеста с README — drift-тест
+[`test/production-url.test.ts`](../../test/production-url.test.ts).
 
-Обе записи показывает `fly certs setup <домен>` (или dashboard → Certificates) —
-вместе с точными значениями.
+## Шаг 1. Платформенный домен (managed TLS)
 
-## Шаг 2. Адреса приложения (A / AAAA)
-
-Для apex-варианта адреса приложения нужны обязательно (это цель A/AAAA); для
-CNAME-схемы их полезно знать, чтобы проверить, что CNAME ведёт туда же:
+Railway выдаёт сервису бесплатный домен `*.up.railway.app` сразу при первом
+деплое. Если домена нет — генерируем:
 
 ```bash
-fly ips list       # IP-адреса, выделенные приложению
-fly ips allocate   # выделить IPv4/IPv6, если их нет (нужно для A/AAAA)
+railway domain                       # без аргумента — сгенерировать домен
+railway domain list --service booking-api
+railway domain status <домен>
 ```
 
-Альтернатива — MCP-инструмент Fly `list_app_ips`: тот же список адресов, если в
-окружении подключён Fly MCP со scope на чтение приложений. В текущем
-окружении Fly MCP отдаёт только контекст подключения и инструменты Managed
-Postgres (`list_app_ips` не экспонирован) — проверено 2026-11-04.
+Ограничение платформы: **один платформенный домен на сервис** (плюс сколько
+угодно custom domains).
 
-**Важно для выпуска и обновления сертификата:** Fly должен иметь возможность
-проверить домен хотя бы одним способом — через AAAA-запись, указывающую на
-приложение, через CNAME `_acme-challenge` или через TXT `_fly-ownership`.
-Практический вывод: **не удаляйте AAAA-запись**, даже если трафик идёт по CNAME.
+`railway domain status` показывает:
 
-## Шаг 3. Выдача сертификата
+- `railwayManaged: true` — домен платформенный, сертификат выпускает Railway;
+- `certificate` — состояние сертификата (`issued` / `pending` / `failed`);
+- DNS-записи — для custom domain (для платформенного пусто: он не требует
+  записей в чужой зоне).
+
+Через Railway MCP то же самое: `generate-domain` (создать), `domain-status`
+(статус и DNS-детали), `delete-domain` (удалить).
+
+## Шаг 2. Custom domain (вне scope v1)
+
+Кастомный домен в v1 **не развёрнут**: `booking.example.com` из AC #56 —
+placeholder, который владелец не может делегировать. Процедура на будущее:
 
 ```bash
-fly certs add booking.example.com
+railway domain booking.example.com
 ```
 
-Команда «Add a certificate for an application. Takes a hostname as a parameter
-for the certificate» — она привязывает домен к приложению и печатает
-применимые варианты DNS-конфигурации для вашего случая (какие именно записи
-поставить: A/AAAA или CNAME, какие значения).
+Railway покажет **две** DNS-записи, и **обе** обязательны:
 
-Дальше Fly сам валидирует домен и выпускает сертификат Let's Encrypt —
-внешний ACME-клиент и cron для этого не нужны. Способы валидации, которые
-использует Fly:
+| Тип записи | Назначение                                   | Обязательна |
+| ---------- | -------------------------------------------- | ----------- |
+| `CNAME`    | маршрутизация трафика на платформенный домен | да          |
+| `TXT`      | подтверждение владения доменом               | да          |
 
-- **TLS-ALPN** — предпочтительный, работает автоматически при прямом соединении;
-- **HTTP-01** — fallback, если TLS-ALPN недоступен;
-- **DNS-01** — вручную, через `_acme-challenge` CNAME (нужен для wildcard и для
-  выпуска сертификата до переключения трафика).
+- Записи ставятся **точно как показал CLI** — иначе проверка владения не
+  пройдёт.
+- До появления `TXT`-записи и верификации домен отдаёт `404`.
+- Распространение DNS может занять до 72 часов.
+- CNAME на apex-домен (`example.com`) невозможен — нужен поддомен
+  (`booking.example.com`).
 
-Wildcard-домен требует кавычек, иначе shell развернёт `*`:
+Выпуск сертификата для custom domain Railway делает сам; если проверка не
+прошла — после исправления DNS:
 
 ```bash
-fly certs add "*.example.com"
+railway domain certificate retry booking.example.com
 ```
 
-Статусы сертификата (поле `status` в ответе Certificates API):
-
-| Статус               | Что означает                                                                  |
-| -------------------- | ----------------------------------------------------------------------------- |
-| `pending_validation` | DNS-записи выставлены, но валидация домена ещё не пройдена                    |
-| `pending_ownership`  | Владение доменом не подтверждено (актуально для импортированных сертификатов) |
-| `active`             | Сертификат выпущен и отдаётся Fly Proxy                                       |
-
-## Шаг 4. Проверка сертификата и DNS
+## Шаг 3. Проверки
 
 ```bash
-fly certs list                        # сертификаты приложения
-fly certs check booking.example.com  # статус сертификата + проверка DNS-конфигурации
-fly certs setup booking.example.com  # какие DNS-записи поставить (если ещё не поставили)
+# Скрипт smoke (тикет #57) — берёт URL из манифеста окружения.
+scripts/production-smoke.sh
+
+# Или вручную:
+curl -sS -o /dev/null -w '%{http_code}\n' https://booking-api-production-b3a4.up.railway.app/
+curl -sS https://booking-api-production-b3a4.up.railway.app/health
+curl -sS -o /dev/null -w '%{http_code}\n' https://booking-api-production-b3a4.up.railway.app/config
+# UI на том же домене (ADR-0006): браузерный Accept → оболочка SPA.
+curl -sS -o /dev/null -w '%{http_code} %{content_type}\n' \
+  -H 'Accept: text/html' https://booking-api-production-b3a4.up.railway.app/
 ```
 
-`fly certs check` «trigger a check on the domain validation and DNS
-configuration for the given hostname» — то есть перепроверяет DNS по факту и
-возвращает разрешённые адреса и ошибки валидации (в ответе Certificates API это
-поля `validation`, `validation_errors` и `dns_records`).
+Ожидания:
 
-Статус должен стать `active`. Если остаётся `pending_*` — см. «Диагностика».
+| Эндпоинт                      | Ожидание                                      |
+| ----------------------------- | --------------------------------------------- |
+| `GET /`                       | 200                                           |
+| `GET /health`                 | 200, тело содержит `"status":"ok"`            |
+| `GET /config`                 | 200, тело — валидный JSON                     |
+| `GET /meeting-types`          | 200, тело — валидный JSON-массив              |
+| `GET /` (`Accept: text/html`) | 200, `content-type: text/html` — оболочка SPA |
 
-## Шаг 5. HTTP→HTTPS redirect
-
-В [`fly.toml`](../../fly.toml) в секции `[http_service]` выставлен ключ:
-
-```toml
-[http_service]
-internal_port = 3000
-force_https = true
-```
-
-По документации Fly, `force_https` — «A Boolean which determines whether to
-enforce HTTP to HTTPS redirects». Fly Proxy на порту 80 отвечает редиректом
-(3xx) на `https://` — отдельного приложения для этого не нужно. Конкретный
-код ответа в документации Fly не зафиксирован: смотрите фактический `Location`
-в ответе.
-
-`fly.toml` — конфиг деплоя, поэтому новое значение применяется только после
-деплоя:
+Сверка с фактическим деплоем:
 
 ```bash
-fly deploy
+railway status                  # проект и окружение, к которым привязан каталог
+railway logs                    # логи рантайма
+railway logs --build            # логи сборки
 ```
 
-Оговорка: `force_https = true` несовместим с Flycast — внутренняя сеть Flycast
-HTTP-only, и для неё ключ должен быть `false`. booking-api публикуется наружу и
-Flycast не использует, поэтому здесь `true` — корректное значение.
+Через MCP: `environment-status` (состояние сервиса и реплик), `get-logs`
+(`types: ["build"]` / `["deploy"]`), `describe-service` (конфиг + домены),
+`get-service-config` (конфигурация сервиса).
 
-## Шаг 5a. Верхняя граница инстансов (одна машина)
+## Шаг 4. Обновление адреса в репозитории
 
-Шаг 4 в оглавлении `fly.toml` (комментарий в начале файла) — верхняя граница
-инстансов.
+Если платформенный домен пересоздан (или проект переименован) — адрес меняется.
+Тогда **в том же PR** правим:
 
-В `fly.toml` у Fly нет ключа `max_machines_running` (в конфиге зафиксирован
-только минимум: `min_machines_running = 1`), поэтому границу задаёт
-runtime-команда:
+1. [`.railway/production.json`](../../.railway/production.json) — поле `publicUrl`;
+2. [README.md](../../README.md), раздел «Production deploy» — тот же URL.
 
-```bash
-fly scale count 1 --max-per-region 1
-```
-
-Флаг `--max-per-region` нужен, чтобы «не больше одной машины на регион» было
-ограничением, а не только текущим значением: `fly scale count 3` (или
-горизонтальный autoscale) запустит несколько машин и сломает single-writer
-контракт — state живёт в памяти процесса
-([ADR-0001](../adr/0001-in-memory-store-with-restart-reset.md),
-[ADR-0002](../adr/0002-single-writer-in-memory-store.md)).
-
-## Шаг 6. Проверки после provisioning
-
-Это acceptance criteria тикета #56, оформленные как команды (после
-`fly certs add`, выставления DNS-записей и `fly deploy`):
-
-```bash
-# / → 200
-curl -sS -o /dev/null -w '%{http_code}\n' https://booking.example.com/
-
-# /health → 200 {"status":"ok"}
-curl -sS -w '\n%{http_code}\n' https://booking.example.com/health
-
-# /config → 200 Configuration JSON
-curl -sS -w '\n%{http_code}\n' https://booking.example.com/config
-
-# HTTP→HTTPS redirect: 3xx на http:// и Location с https://
-curl -sSI http://booking.example.com/ | head -3
-```
-
-Ожидается: `200`, `{"status":"ok"}`, валидный JSON конфигурации владельца
-(`GET /config` отдаёт `OwnerConfig` — см. `src/routes/config.ts`) и редирект с
-`http://` на `https://`.
-
-Полный post-deploy smoke (включая `GET /meeting-types`) — отдельная
-процедура тикета #57, `scripts/production-smoke.sh https://booking.example.com`.
-
-## Авто-ренью сертификата
-
-Отдельный cron и ACME-клиент **не нужны**: сертификат Let's Encrypt выпускает и
-обновляет сам Fly — это «automatic Let's Encrypt certificates that Fly.io
-manages for you».
-
-Условие, без которого ренью не пройдёт: Fly должен иметь возможность проверить
-домен. По документации — «To issue or renew a certificate, Fly.io needs to
-verify your domain through at least one of: an IPv6 address (AAAA record)
-pointing to your app, a CNAME `_acme-challenge`, or a `_fly-ownership` TXT
-record». Практически: держите AAAA-запись (или `_acme-challenge` CNAME) — иначе
-ренью упадёт, а просроченный сертификат уронит HTTPS.
-
-Ограничения Let's Encrypt (дедупликация и защита от флуда) — учитывайте при
-экспериментах с несколькими доменами:
-
-- 50 сертификатов на зарегистрированный домен в неделю;
-- 5 дубликатов одного сертификата в неделю;
-- 5 неуспешных валидаций на одно имя в час;
-- ренью **не** учитывается в лимите «50 в неделю».
-
-Если увидели `rate_limited_until` в ответе Certificates API — сбросить лимит
-нельзя, надо ждать окна.
+До синхронизации записей drift-тест `test/production-url.test.ts` падает: адрес
+в репозитории и фактический деплой разойдутся.
 
 ## Диагностика
 
-### Сертификат в статусе `pending_*`
-
-1. `fly certs check <домен>` — показывает, что именно Fly не смог проверить
-   (`validation`, `validation_errors` с подсказкой `remediation`).
-2. Проверьте DNS-записи, которые Fly просил (`fly certs setup <домен>`):
-   - для CNAME-схемы — CNAME на `<app>.fly.dev`;
-   - для A/AAAA-схемы — **и** A, **и** AAAA (или хотя бы один способ валидации
-     из списка выше);
-   - для DNS-01 — CNAME `_acme-challenge.<домен>` на выданный target.
-3. Проверьте, что DNS-записи уже разошлись (см. ниже) — валидация идёт по
-   публичному DNS, кэш может отдавать старое значение.
-4. Проверьте CAA-записи (см. ниже).
-5. Для wildcard-сертификата обязателен DNS-01 — HTTP-01 и TLS-ALPN wildcard не
-   покрывают.
-
-### DNS не сошёлся
+### Сертификат в статусе pending / failed
 
 ```bash
-dig +short booking.example.com          # что реально резолвится
-dig +short AAAA booking.example.com      # IPv6-запись есть?
-dig +short CNAME booking.example.com     # CNAME-запись есть?
-dig booking.example.com                  # полная картина + TTL
-fly ips list                             # адреса приложения — совпадают с A/AAAA?
+railway domain status <домен>        # состояние сертификата и DNS-записи
+railway domain certificate retry <домен>   # повтор после исправления DNS
 ```
 
-- **TTL.** Правка DNS-записи не мгновенна: смотрите TTL в выводе `dig` и
-  ждите его истечения (плюс кэш резолверов). При смене CNAME-таргета или при
-  переносе с IP на CNAME заложите время на распространение.
-- **Сверьте с `fly ips list`:** A/AAAA-записи должны указывать на адреса,
-  выделенные приложению.
-- **Не смешивайте схемы:** одновременно висящие A/AAAA и CNAME — частая причина
-  «то работает, то нет».
+Для custom domain чаще всего не сошёлся `TXT`-подтверждающий рекорд или
+`CNAME` ведёт не на тот сервис. Для платформенного домена причина обычно
+другая: сервис ещё не прошёл health-check — Railway не выпускает сертификат
+неработающему сервису.
 
-### CAA-записи
+### 502 / 503 от edge Railway
 
-CAA (RFC 8659) ограничивает, кто вообще может выпустить сертификат для
-домена. Если в вашей зоне есть CAA-запись, а Let's Encrypt в ней не
-разрешён, выпуск не пройдёт — сертификат останется в `pending_validation`.
-CA смотрит **ближайшую** CAA-запись к имени (можно переопределить её на
-поддомене) и **следует CNAME** при проверке.
+- `railway logs` — логи рантайма; `railway logs --build` — логи сборки.
+- `railway status` / MCP `environment-status` — состояние сервиса и число
+  реплик. Ожидается `online` и **1** реплика: больше одной нельзя (state в
+  памяти процесса, [ADR-0001](../adr/0001-in-memory-store-with-restart-reset.md)).
+- Health-check в [`.railway/railway.ts`](../../.railway/railway.ts) — `GET /health`
+  с таймаутом 30 с. Жёсткий health-check: пока реплика не ответила 2xx, трафик
+  на неё не идёт.
+- Пока старая реплика вытесняется новой, edge может коротко отдавать 502 —
+  smoke-скрипт повторяет проверки (retry-loop, `SMOKE_RETRIES` /
+  `SMOKE_RETRY_DELAY`).
+
+### Приложение не слышит порт
+
+Railway инжектит `PORT` сам; приложение читает `process.env.PORT`
+([`src/server.ts`](../../src/server.ts)). В контейнере должен быть
+`HOST=0.0.0.0` — иначе опубликованный порт недостижим снаружи.
+
+### Откат
+
+Custom domain можно снять, не трогая платформенный:
 
 ```bash
-dig +short CAA example.com
-dig +short CAA booking.example.com
+railway domain list --service booking-api
+railway domain delete booking.example.com --yes
 ```
 
-Если CAA-записи нет — ничего делать не нужно (по умолчанию сертификат может
-выпустить любой публичный CA). Если есть и Let's Encrypt не разрешён — добавьте
-`letsencrypt.org` (для Fly это именно Let's Encrypt) или уберите запись.
-Источник поведения — документация Let's Encrypt
-(<https://letsencrypt.org/docs/caa/>), сверено 2026-11-04.
+Платформенный домен удалять не нужно: он и есть публичная точка входа v1.
+Если адрес перевёрнут на старый — откат = восстановить прежний `publicUrl` в
+`.railway/production.json` и README.
 
-### 502 / 503 от Fly Proxy
+## Ссылки
 
-```bash
-fly logs            # логи приложения
-fly checks list     # результаты health-check'ов
-fly status          # состояние машин
-```
-
-- **502 Bad Gateway** — приложение не ответило прокси. Чаще всего не хватило
-  времени на старт: увеличьте `grace_period` в `[[http_service.checks]]`
-  (в `fly.toml` сейчас 10s).
-- **503 Service Unavailable** — нет ни одной здоровой машины: все машины
-  остановлены или не проходят health-check. У нас `min_machines_running = 1` и
-  `auto_stop_machines = "off"` (тикет #54), поэтому «нулевая» машина — это
-  либо не завершившийся деплой, либо упавший процесс.
-- **Health-check жёсткий:** Fly Proxy ждёт 2xx. Наш `GET /health` отдаёт
-  `{"status":"ok"}` — редиректов и ошибок в нём быть не должно.
-
-### Ошибки в `fly certs check`
-
-Поля `validation_errors` в ответе содержат код, текст и `remediation` —
-начинайте с них.
-
-## Откат
-
-### Снять сертификат
-
-```bash
-fly certs list
-fly certs remove booking.example.com   # -y, чтобы без подтверждения
-```
-
-Флаг `--acme` останавливает только выпуск ACME-сертификатов (свой сертификат,
-если он есть, продолжит отдаваться), `--custom` — удаляет только свой
-сертификат, оставляя ACME. После снятия домен перестаёт работать по HTTPS;
-`https://<app>.fly.dev` продолжает работать — у него свой сертификат.
-
-### Откатить HTTP→HTTPS redirect
-
-1. Убрать `force_https = true` (или поставить `false`) в `fly.toml`;
-2. `fly deploy`;
-3. проверить: `curl -sSI http://booking.example.com/` больше не отдаёт редирект.
-
-### Сменить домен
-
-Порядок без простоя:
-
-1. `fly certs add <новый-домен>` — выпустить сертификат заранее (для этого
-   используйте DNS-01 `_acme-challenge`, чтобы не переключать трафик до
-   готовности сертификата);
-2. дождаться статуса `active` (`fly certs check <новый-домен>`);
-3. переключить DNS-записи на новый домен;
-4. поправить канонический URL в репозитории (тикет #62) и ссылку на runbook;
-5. снять старый сертификат: `fly certs remove <старый-домен>`.
-
-## Что этот runbook не покрывает
-
-- **Wildcard-домены** (вне scope тикета #56) — процедура та же, но нужен
-  DNS-01 и wildcard-имя в `fly certs add "*.example.com"`.
-- **Multi-env DNS** (dev/staging/prod на разных доменах) и **WAF** — вне
-  scope.
-- **Импорт собственного сертификата** (`fly certs import`) — не нужен: у Fly
-  managed Let's Encrypt. Описан в docs Fly, но вне нашего сценария.
-- **Собственный ACME-cron** — не нужен, ренью делает Fly.
-- **Фактический прогон** всех шагов: требует живого Fly-аккаунта и домена,
-  которых в среде разработки нет.
-
-## Связи
-
-- [`fly.toml`](../../fly.toml) — конфиг приложения: `app` (имя), `[env]`,
-  health-check, `force_https` (HTTP→HTTPS redirect).
-- [production-secrets.md](production-secrets.md) — секреты (`fly secrets set`),
-  конфигурация владельца; DNS/TLS с секретами не пересекаются.
-- [ADR-0004 — Размещение Booking API v1 на managed-платформе (Fly.io)](../adr/0004-hosting-platform.md):
-  платформа выбрана, managed TLS — часть принятого решения.
-- Тикет #54 — `fly.toml` (сервис, health-check, `[env]`, регион).
-- Тикет #55 — секреты в production.
-- Тикет #56 — этот runbook (`force_https` + процедура DNS/TLS).
-- Тикет #57 — post-deploy smoke против реального URL.
-- Тикет #62 — канонический публичный URL в репозитории (выводится из `app`).
-- [ADR-0001 — In-memory store with restart reset](../adr/0001-in-memory-store-with-restart-reset.md):
-  рестарт Machines стирает записи — `fly deploy` из этого runbook'а тоже.
-- Источники поведения Fly (сверено **2026-11-04**):
-  [Custom domains](https://docs.fly.io/networking/custom-domain/),
-  [`fly certs add`](https://docs.fly.io/flyctl/cmd/fly_certs_add/),
-  [`fly certs remove`](https://docs.fly.io/flyctl/cmd/fly_certs_remove/),
-  [`fly certs`](https://docs.fly.io/flyctl/cmd/fly_certs/),
-  [`fly ips list`](https://docs.fly.io/flyctl/cmd/fly_ips_list/),
-  [Certificates resource (API)](https://docs.fly.io/machines/api/certificates-resource/),
-  [TLS termination by Fly Proxy](https://docs.fly.io/security/tls-termination/),
-  [`fly.toml` reference](https://docs.fly.io/reference/configuration/),
-  [Troubleshoot your deployment](https://docs.fly.io/getting-started/troubleshooting/),
-  [CAA — Let's Encrypt](https://letsencrypt.org/docs/caa/).
+- [`.railway/railway.ts`](../../.railway/railway.ts) — deploy-конфиг: health-check,
+  лимиты, реплики (тикет #54).
+- [`.railway/production.json`](../../.railway/production.json) — манифест
+  окружения с каноническим `publicUrl` (тикет #62).
+- [production-secrets.md](production-secrets.md) — переменные окружения и секреты.
+- [production-mcp.md](production-mcp.md) — Railway MCP из агента.
+- [ADR-0005 — Размещение Booking API v1 на Railway.io](../adr/0005-hosting-platform-railway.md).
+- Документация Railway (сверено **2026-11-04**):
+  [Domains](https://docs.railway.com/networking/domains),
+  [`railway domain`](https://docs.railway.com/cli/domain),
+  [Healthchecks](https://docs.railway.com/deployments/healthchecks),
+  [Regions](https://docs.railway.com/deployments/regions).

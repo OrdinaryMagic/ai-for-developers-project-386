@@ -16,8 +16,10 @@ import {
   accessSync,
   chmodSync,
   constants,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
+  rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -25,11 +27,10 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../src/app.js";
-import { readTopLevelStringKey } from "./helpers/toml.js";
 
 const REPO_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const SCRIPT_PATH = join(REPO_ROOT, "scripts", "production-smoke.sh");
-const FLY_TOML_PATH = join(REPO_ROOT, "fly.toml");
+const MANIFEST_PATH = join(REPO_ROOT, ".railway/production.json");
 
 /** Результат прогона скрипта: код возврата + собранный вывод. */
 interface SmokeRun {
@@ -64,16 +65,36 @@ function runSmoke(args: string[], env: NodeJS.ProcessEnv = {}): Promise<SmokeRun
   });
 }
 
-/** Top-level ключ `app` из `fly.toml` — имя Fly-приложения. */
-function readFlyApp(): string {
-  return readTopLevelStringKey(readFileSync(FLY_TOML_PATH, "utf8"), "app") ?? "";
+/** Канонический публичный URL — поле `publicUrl` манифеста окружения. */
+function readCanonicalUrl(): string {
+  const manifest = JSON.parse(readFileSync(MANIFEST_PATH, "utf8")) as { publicUrl?: string };
+  return manifest.publicUrl ?? "";
 }
 
 let app: FastifyInstance | null = null;
 let liveBaseUrl = "";
+let staticRoot = "";
+
+/**
+ * Фикстура «собранного фронтенда»: оболочка SPA + один ассет.
+ *
+ * Smoke-проверяет, что задеплоенный сервис отдаёт UI, поэтому тест не может
+ * полагаться на локальный `web/dist` (в CI его нет) — собираем минимальный
+ * каталог статики во временной папке.
+ */
+beforeAll(() => {
+  staticRoot = mkdtempSync(join(tmpdir(), "production-smoke-static-"));
+  mkdirSync(join(staticRoot, "assets"));
+  writeFileSync(
+    join(staticRoot, "index.html"),
+    '<!doctype html><html lang="en"><body><div id="root"></div></body></html>',
+    "utf8",
+  );
+  writeFileSync(join(staticRoot, "assets", "app.js"), "console.log('app');\n", "utf8");
+});
 
 beforeAll(async () => {
-  app = await buildApp();
+  app = await buildApp({ staticRoot });
   await app.listen({ port: 0, host: "127.0.0.1" });
   const address = app.server.address();
   if (address === null || typeof address === "string") {
@@ -87,6 +108,7 @@ afterAll(async () => {
     await app.close();
     app = null;
   }
+  rmSync(staticRoot, { recursive: true, force: true });
 });
 
 describe("контракт scripts/production-smoke.sh", () => {
@@ -95,12 +117,19 @@ describe("контракт scripts/production-smoke.sh", () => {
     expect(() => accessSync(SCRIPT_PATH, constants.X_OK)).not.toThrow();
   });
 
-  it("в скрипте зафиксированы все четыре проверяемых пути", () => {
+  it("в скрипте зафиксированы все проверяемые пути", () => {
     const source = readFileSync(SCRIPT_PATH, "utf8");
 
-    for (const path of ["/", "/health", "/config", "/meeting-types"]) {
+    for (const path of ["/", "/health", "/config", "/meeting-types", "/admin/event-types"]) {
       expect(source, `в скрипте нет пути ${path}`).toContain(`"${path}"`);
     }
+  });
+
+  it("скрипт проверяет UI: Accept-заголовок и режим html-валидатора", () => {
+    const source = readFileSync(SCRIPT_PATH, "utf8");
+
+    expect(source).toContain("BROWSER_ACCEPT");
+    expect(source).toContain('"html"');
   });
 });
 
@@ -113,10 +142,10 @@ describe("smoke против живого приложения", () => {
     expect(run.output).not.toContain("FAIL");
   });
 
-  it("проверяет все четыре эндпоинта", async () => {
+  it("проверяет все шесть эндпоинтов", async () => {
     const run = await runSmoke([liveBaseUrl]);
 
-    for (const path of ["/", "/health", "/config", "/meeting-types"]) {
+    for (const path of ["/", "/health", "/config", "/meeting-types", "/admin/event-types"]) {
       expect(run.output, `эндпоинт ${path} не проверен`).toContain(path);
     }
   });
@@ -142,7 +171,7 @@ describe("smoke против живого приложения", () => {
   it("непустой /meeting-types — WARNING, а не падение", async () => {
     // Отдельный инстанс с одним типом встречи: на инстансе с данными
     // непустой массив — норма, smoke падать не должен.
-    const seeded = await buildApp();
+    const seeded = await buildApp({ staticRoot });
     await seeded.inject({
       method: "POST",
       url: "/meeting-types",
@@ -202,15 +231,25 @@ describe("валидация числовых env-переменных", () => {
   });
 });
 
-describe("default-URL выводится из fly.toml", () => {
+describe("default-URL выводится из манифеста окружения", () => {
   it("в скрипте нет захардкоженного публичного адреса", () => {
     const source = readFileSync(SCRIPT_PATH, "utf8");
 
-    expect(source).not.toContain("booking-api.fly.dev");
+    // Ни одного доменного литерала: адрес приходит только из манифеста
+    // окружения (`.railway/production.json`) или из аргумента командной строки.
+    expect(source).not.toMatch(/[a-z0-9-]+\.up\.railway\.app/);
     expect(source).not.toContain("booking.example.com");
+    expect(source).not.toContain("fly.dev");
   });
 
-  it("без аргумента печатает URL, собранный из ключа `app` в fly.toml", async () => {
+  it("скрипт читает адрес из манифеста окружения", () => {
+    const source = readFileSync(SCRIPT_PATH, "utf8");
+
+    expect(source).toContain(".railway/production.json");
+    expect(source).toContain("publicUrl");
+  });
+
+  it("без аргумента печатает URL из поля `publicUrl` манифеста", async () => {
     // Stub `curl` в PATH: сетевых обращений не происходит, скрипт только
     // печатает разрешённый base URL и затем падает на недоступном хосте.
     const stubDir = mkdtempSync(join(tmpdir(), "production-smoke-stub-"));
@@ -220,6 +259,33 @@ describe("default-URL выводится из fly.toml", () => {
 
     const run = await runSmoke([], { PATH: `${stubDir}:${process.env.PATH ?? ""}` });
 
-    expect(run.output).toContain(`https://${readFlyApp()}.fly.dev`);
+    expect(run.output).toContain(readCanonicalUrl());
+  });
+
+  it("без аргумента и без манифеста — понятная ошибка, non-zero exit", async () => {
+    // Скрипт обязан деградировать явно, а не молча проверять неверный адрес.
+    const emptyRepo = mkdtempSync(join(tmpdir(), "production-smoke-no-manifest-"));
+    // Копируем только скрипт: манифеста рядом не будет.
+    const scriptCopy = join(emptyRepo, "production-smoke.sh");
+    writeFileSync(scriptCopy, readFileSync(SCRIPT_PATH, "utf8"), "utf8");
+    chmodSync(scriptCopy, 0o755);
+
+    const run = await new Promise<SmokeRun>((resolve, reject) => {
+      const child = spawn(scriptCopy, [], {
+        env: { ...process.env, SMOKE_RETRIES: "1", SMOKE_RETRY_DELAY: "0" },
+      });
+      let output = "";
+      child.stdout.on("data", (chunk: Buffer) => {
+        output += chunk.toString();
+      });
+      child.stderr.on("data", (chunk: Buffer) => {
+        output += chunk.toString();
+      });
+      child.on("error", reject);
+      child.on("close", (code) => resolve({ code, output }));
+    });
+
+    expect(run.code, run.output).not.toBe(0);
+    expect(run.output).toContain("production.json");
   });
 });

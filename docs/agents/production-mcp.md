@@ -1,48 +1,50 @@
-# Production MCP: runbook
+# Production MCP — booking-api v1 (Railway.io)
 
-Как агент (OpenCode) в этом репозитории подключается к MCP-серверам, что
-лежит в репозитории, а что — вне его, и что делать, если подключение не
-работает.
+Runbook: как агент (OpenCode) подключается к Railway через MCP, какие операции
+доступны и где хранятся токены.
 
-- **Агент:** OpenCode V2. Конфигурация проекта —
-  [`.opencode/opencode.json`](../../.opencode/opencode.json).
-- **Платформа:** Fly.io — решение принято в
-  [ADR-0004](../adr/0004-hosting-platform.md).
-- **Главное правило:** OAuth-токены и любые другие секреты хранятся **вне
-  репозитория** — в конфигурации пользователя. В репозиторий попадают только
-  публичные URL и команды запуска.
+- **Платформа:** Railway.io — решение принято в
+  [ADR-0005](../adr/0005-hosting-platform-railway.md) (ADR-0004 про Fly.io
+  помечен как superseded).
+- **Проектная конфигурация:** [`.opencode/opencode.json`](../../.opencode/opencode.json) —
+  канонический V2-путь `mcp.servers` (тикет #63).
 
-Тикет: #63 «Проектная MCP-конфигурация агента в репозитории».
-Соседние тикеты карты #52: #54 — `fly.toml`, #55 — secrets, #57 — post-deploy
-smoke.
+Соседние тикеты карты #52: #54 — deploy-конфиг, #55 — секреты, #57 — post-deploy smoke.
 
-## Коротко
+## Подключение
 
 ```bash
-# Подключить fly-mcp (глобально — чтобы работало и в других проектах):
-opencode mcp add --global fly-mcp --url https://mcp.fly.io
+# Подключить railway-mcp глобально (чтобы работало и в других проектах):
+opencode mcp add --global railway-mcp --url https://mcp.railway.com
 
-# Залогиниться через OAuth: откроется браузер, выбрать организацию:
-opencode mcp auth fly-mcp
+# Залогиниться через OAuth (откроется браузер, выбрать организацию):
+opencode mcp auth railway-mcp
 
 # Проверить статус подключения:
 opencode mcp list
 ```
 
-## Что лежит в репозитории
+- Порядок аргументов не важен: `opencode mcp add railway-mcp --global --url …` —
+  то же самое.
+- `--global` пишет конфиг пользователя (`~/.config/opencode/opencode.jsonc`),
+  а не репозиторий. Без `--global` подключение живёт в локальном
+  `.opencode/opencode.json` проекта.
+- В репозитории объявлено **только** имя сервера и публичный URL — OAuth-токенов
+  в `.opencode/opencode.json` нет и быть не должно (drift-тест
+  [`test/project-mcp-config.test.ts`](../../test/project-mcp-config.test.ts)).
 
-Ровно один файл — [`.opencode/opencode.json`](../../.opencode/opencode.json).
-Серверы объявлены в каноническом V2-пути `mcp.servers` (устаревшая V1-форма
-`mcp.<name>` в OpenCode V2 deprecated и не используется):
+## Проектная конфигурация
+
+[`.opencode/opencode.json`](../../.opencode/opencode.json):
 
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
     "servers": {
-      "fly-mcp": {
+      "railway-mcp": {
         "type": "remote",
-        "url": "https://mcp.fly.io"
+        "url": "https://mcp.railway.com"
       },
       "shadcn": {
         "type": "local",
@@ -54,136 +56,77 @@ opencode mcp list
 }
 ```
 
-- **`fly-mcp`** — remote-сервер Fly.io (Streamable HTTP). OAuth включён по
-  умолчанию, поэтому в конфиге нет ни токена, ни заголовков авторизации:
-  достаточно только URL.
-- **`shadcn`** — local-сервер (stdio), запускается через `npx`. В V1 он был
-  объявлен в `mcp.shadcn`; в V2 переехал в `mcp.servers.shadcn`, поведение не
-  изменилось (`enabled: true` → `disabled: false`, то есть сервер подключается).
+- `mcp.servers` — канонический V2-путь. V1-путь (`mcp.<name>`) deprecated:
+  сервер, объявленный прямо в `mcp`, считался бы устаревшей формой.
+- `railway-mcp` — remote-сервер (Streamable HTTP), OAuth включён на стороне
+  Railway; `headers`/`oauth` в конфиге не задаются — авторизация идёт через
+  `opencode mcp auth`.
+- `shadcn` — local-сервер, команда запуска не менялась.
 
-Конфиг валиден по опубликованной схеме
-(<https://opencode.ai/config.json>) и проверяется тестом
-[`test/project-mcp-config.test.ts`](../../test/project-mcp-config.test.ts):
-форма пути, состав серверов и отсутствие секретов.
+## Что даёт `railway-mcp`
 
-## Как подключить
+Официальный MCP-сервер Railway — 71 инструмент. Для карты #52 полезны:
 
-Внутри этого репозитория подключение уже объявлено — достаточно авторизоваться
-(см. ниже). Команда `opencode mcp add` нужна, чтобы использовать `fly-mcp` в
-других проектах:
+| Инструмент               | Что делает                                                          |
+| ------------------------ | ------------------------------------------------------------------- |
+| `list-workspaces`        | рабочие пространства пользователя                                   |
+| `list-projects`          | проекты, доступные авторизованному пользователю                     |
+| `create-project`         | создать проект (и окружение по умолчанию)                           |
+| `create-deployment`      | создать сервис из GitHub-репозитория и запустить первый деплой      |
+| `connect-service-source` | подключить источник (GitHub-репо или образ) к существующему сервису |
+| `update-service`         | конфиг сервиса: health-check, лимиты, реплики, restart policy       |
+| `get-service-config`     | текущая конфигурация сервиса (со staged-изменениями)                |
+| `describe-service`       | всё о сервисе: конфиг, домены, последний деплой, трейсинг           |
+| `set-variables`          | выставить переменные окружения                                      |
+| `list-variables`         | список имён переменных                                              |
+| `generate-domain`        | выпустить платформенный домен `*.up.railway.app`                    |
+| `domain-status`          | статус домена: сертификат, DNS-детали                               |
+| `redeploy`               | передеплоить последний деплой                                       |
+| `get-logs`               | логи сборки/деплоя (с фильтром по типам)                            |
+| `environment-status`     | состояние сервисов окружения, число реплик, активные деплои         |
+| `railway-agent`          | составные операции, когда сценарий многошаговый                     |
 
-```bash
-opencode mcp add --global fly-mcp --url https://mcp.fly.io
-```
+Значения **секретов** эти инструменты не показывают: `list-variables`
+возвращает имена, а sealed-переменные читать обратно нельзя в принципе.
 
-- `--global` — записать сервер в конфиг пользователя
-  (`~/.config/opencode/opencode.jsonc`), чтобы он был доступен во всех
-  проектах. Без флага сервер добавится в конфиг текущего проекта.
-- Порядок аргументов не важен: `opencode mcp add fly-mcp --global --url …` —
-  то же самое.
-- Команда пишет в конфиг пользователя, а не в репозиторий, и не добавляет
-  токенов: remote-серверы авторизуются через OAuth.
+## Альтернатива: CLI Railway
 
-Проверить, что сервер виден:
+Те же операции доступны из CLI (`railway login`, `railway link`,
+`railway config plan|apply`, `railway variable list|set|delete`,
+`railway domain`, `railway logs`, `railway status`). MCP удобен тем, что агент
+работает с теми же примитивами, что и человек, — но логика остаётся за
+репозиторием: `.railway/railway.ts` (конфиг) и `.railway/production.json`
+(манифест окружения).
 
-```bash
-opencode mcp list
-```
+## Где хранятся токены
 
-## Как залогиниться
+OAuth-токены и любые секреты хранятся **вне репозитория** — в конфиге
+пользователя (`~/.config/opencode/opencode.jsonc`) и в хранилище Railway.
+В репозиторий попадают только публичные URL и команды; токенов в
+`.opencode/opencode.json` нет и быть не должно. Скан репозитория — `gitleaks`
+(pre-commit + CI).
 
-Вход — OAuth в браузере, без API-токена:
+Отозвать выданный доступ: `opencode mcp logout railway-mcp` — и на стороне
+Railway (настройки подключённых приложений).
 
-```bash
-opencode mcp auth fly-mcp
-```
+## Диагностика
 
-Либо прямо в интерфейсе агента: `/mcps` → выбрать `fly-mcp` → sign in. В
-браузере выбирается организация (для нескольких — одна из них) и подтверждаются
-запрашиваемые права. Выданный доступ виден в TUI как `connected` (а до
-авторизации — `needs authentication`).
+- **`needs authentication`** — не пройден OAuth: `opencode mcp auth railway-mcp`
+  либо в интерфейсе агента `/mcps` → `railway-mcp` → sign in.
+- **Не подключается** — проверьте URL: он должен быть `https://mcp.railway.com`.
+- **Инструменты есть, но вызовы падают** — проверьте, что выбран нужный
+  workspace (у пользователя их может быть несколько): `list-workspaces`,
+  `list-projects`.
+- **Переменные применились, но не подействовали** — Railway применяет изменения
+  переменных через staged changes: дождитесь деплоя и проверьте
+  `environment-status` / `get-logs`.
 
-Серверы, которым нужен локальный секрет (например, GitHub MCP через
-`docker run -e GITHUB_PERSONAL_ACCESS_TOKEN`), в репозиторий не попадают: их
-описывают в **глобальном** конфиге пользователя.
+## Ссылки
 
-## Что даёт `fly-mcp`
-
-Fly MCP — один MCP-сервер на все продукты Fly.io
-(<https://fly.io/mcp/>). Через него агент управляет ресурсами выбранной
-организации:
-
-| Область          | Примеры инструментов                                                         |
-| ---------------- | ---------------------------------------------------------------------------- |
-| Apps             | `list_apps`, `get_app`, `delete_app`                                         |
-| Machines         | `list_machines`, `create_machine`, `restart_machine`, `exec_machine_command` |
-| Volumes          | `list_volumes`, `create_volume`, `create_volume_snapshot`                    |
-| App secrets      | `list_app_secrets`, `get_app_secret`, `set_app_secret`, `delete_app_secret`  |
-| IP и TLS         | `list_app_ips`, `list_app_certificates`, `get_app_certificate`               |
-| Managed Postgres | `list_postgres_clusters`, `create_postgres_database`                         |
-| Sprites          | `list_sprites`, `exec`, `file_read`, `service_logs`                          |
-
-Про секреты — важно: `list_app_secrets` показывает **имена** секретов, их
-**digest** и таймстемпы, но **никогда** не значения. Значение секрета не
-отдаётся и через `get_app_secret`. Записать или удалить секрет можно
-(`set_app_secret` / `delete_app_secret`), но это отдельное осознанное действие
-агента, а не чтение.
-
-Ограничения сервера: workflow деплоя и создание приложений не входят в
-каталог инструментов; IP-адреса и сертификаты — только на чтение; инструменты
-Managed Postgres ничего не удаляют, не меняют пользователей и пароли и не
-возвращают пароли.
-
-## Где хранятся OAuth-токены
-
-**Вне репозитория.** OpenCode хранит OAuth-креды в своём хранилище
-пользователя, отдельно от конфигурации проекта: в репозитории нет ни
-`access_token`, ни `client_secret`, ни заголовков вида
-`Authorization: Bearer …`.
-
-Правила:
-
-- в `.opencode/opencode.json` попадают только публичные URL (`https://mcp.fly.io`)
-  и команды запуска local-серверов;
-- если серверу всё же нужен API-ключ, в конфиг пишут **не значение**, а
-  подстановку окружения (`"{env:MCP_API_KEY}"`), и сам ключ задают в окружении
-  или в глобальном конфиге пользователя;
-- отозвать выданный доступ: `opencode mcp logout fly-mcp` — и на стороне Fly
-  (отзыв consent в настройках организации).
-
-## Если подключение не работает
-
-- **`needs authentication`** — не пройден OAuth: `opencode mcp auth fly-mcp`
-  либо `/mcps` → `fly-mcp` → sign in.
-- **Не подключается** — проверьте URL: он должен быть `https://mcp.fly.io`
-  (без `/mcp` на конце). Также проверьте, что аккаунт имеет доступ к нужной
-  организации.
-- **`permission denied`** — выбранная организация или ресурс не входят в
-  выданный grant: переподключитесь и согласуйте нужные права. Повторные
-  попытки доступ не расширяют.
-- **Конфиг не подхватился** — OpenCode перечитывает конфигурацию сам после
-  сохранения; если сомневаетесь — `/reload`.
-
-## Что никогда не попадает в репозиторий
-
-- OAuth-токены, access/refresh-токены, `client_secret` — только в хранилище
-  пользователя.
-- Значения секретов Fly, `fly.toml` c заполненными секретами, `.env*` с
-  значениями — см. runbook по секретам
-  ([production-secrets.md](production-secrets.md)).
-- API-ключи в заголовках MCP-конфига.
-
-Сканы на утечку настроены: `gitleaks` в pre-commit-хуке и в CI (см.
-README → [Security](../../README.md#security)), конфиг — `.gitleaks.toml`.
-
-## Связи
-
-- [`.opencode/opencode.json`](../../.opencode/opencode.json) — проектная
-  конфигурация MCP (V2-путь `mcp.servers`).
-- [README → MCP](../../README.md#mcp) — короткая версия инструкции.
-- [ADR-0004 — Размещение Booking API v1 на managed-платформе (Fly.io)](../adr/0004-hosting-platform.md):
-  платформа выбрана, `fly-mcp` — её официальный MCP-сервер.
-- [production-secrets.md](production-secrets.md) — секреты приложения и Fly.
-- Документация OpenCode V2: [MCP servers](https://opencode.ai/v2/docs/mcp-servers).
-- Документация Fly: [Fly MCP](https://fly.io/mcp/),
-  [подключение клиентов](https://mcp.fly.io/guide.md).
+- [ADR-0005 — Размещение Booking API v1 на Railway.io](../adr/0005-hosting-platform-railway.md):
+  платформа выбрана, `railway-mcp` — её официальный MCP-сервер.
+- [production-secrets.md](production-secrets.md) — секреты приложения и Railway.
+- [production-dns-tls.md](production-dns-tls.md) — домен и TLS.
+- Документация Railway (сверено **2026-11-04**):
+  [Railway MCP](https://docs.railway.com/guides/mcp),
+  [`railway mcp install`](https://docs.railway.com/cli/mcp).
