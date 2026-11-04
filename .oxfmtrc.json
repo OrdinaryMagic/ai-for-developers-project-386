@@ -5,6 +5,7 @@
     "docs_stage.json",
     "CHANGELOG.md",
     "openapi.yaml",
-    "results.sarif"
+    "results.sarif",
+    ".worktrees/"
   ]
 }

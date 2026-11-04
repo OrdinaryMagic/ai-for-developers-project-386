@@ -4,7 +4,7 @@
     "correctness": "error",
     "suspicious": "warn"
   },
-  "ignorePatterns": ["dist", "coverage"],
+  "ignorePatterns": ["dist", "coverage", ".worktrees/"],
   "rules": {
     "oxc/no-async-endpoint-handlers": "off"
   }

@@ -1,6 +1,9 @@
 node_modules/
 dist/
 coverage/
+# Agent worktrees живут внутри репозитория (.worktrees/<ticket>-*):
+# без игнора их содержимое попадает в `git status` и в прогоны линтера/форматтера.
+.worktrees/
 *.log
 .env
 .env.*
