@@ -229,14 +229,14 @@ Frontend и end-to-end тесты — отдельная итерация кар
 - `npm run dev:web` — Vite dev-сервер на `127.0.0.1:5173`. Ожидается запущенный backend на `127.0.0.1:3000` (`make dev`); Vite проксирует `/api/*` на backend, так что из браузера все запросы идут на тот же origin и CORS не нужен.
 - `npm run build:web` — Vite-сборка; результат — статические ассеты в `web/dist/`.
 - `npm run gen:sdk` — регенерировать `web/src/api/sdk.ts` из `openapi.yaml` (генератор `openapi-typescript@7.13.0`, тикет #29). Прогон обязателен после любой правки `spec/*.tsp` и после изменения `openapi.yaml` релизом — см. AGENTS.md rule #9.
-- `npm run test:e2e` — Playwright end-to-end против реального Fastify-сервера (Wave C, тикет #34). До появления команды она не зарегистрирована в `package.json`.
+- `npm run test:e2e` — Playwright end-to-end против реального Fastify-сервера (Wave C, тикет #34). Сам поднимает backend через `playwright.config.ts::webServer` (Fastify на `E2E_API_PORT`, по умолчанию 3030) и Vite dev-сервер на 5173; внешний `make start` не требуется ни локально, ни в CI.
 - `npm run test:e2e:install` — `npx playwright install --with-deps chromium`, разовая установка браузера для e2e.
 
 ### Волны карты #26
 
 - **Wave A — каркас + SDK** (тикеты #28, #29): создать `web/`, привязать к корню репозитория, сгенерировать SDK. Никакого runtime-кода здесь ещё нет.
 - **Wave B — UI** (тикеты #30–#33): shadcn/ui + Vite, страницы владельца и гостя, прокси `/api/*` на backend.
-- **Wave C — e2e + CI** (тикеты #34–#35): Playwright против поднятого Fastify (`make start` + `npm run test:e2e`), отдельный CI-джоб в `.github/workflows/ci.yml`.
+- **Wave C — e2e + CI** (тикеты #34–#35): `npm run test:e2e` против реального Fastify: `playwright.config.ts::webServer` сам стартует Fastify (порт `E2E_API_PORT`, default 3030) и Vite dev (5173), без ручного `make start`. Отдельный CI-джоб в `.github/workflows/ci.yml` (caches `~/.cache/ms-playwright`, upload `playwright-report/` на failure).
 - **Wave D — гигиена** (тикет #27 и соседи): правила и документация, фиксирующие рамки перед Wave A/B/C. AGENTS.md rule #10 и rule #11, плюс этот раздел — артефакты Wave D.
 
 Корень карты — тикет #26.
