@@ -269,6 +269,36 @@ opencode mcp list
   `list_app_secrets` показывает имена секретов и их digest'ы, но **не
   значения**.
 
+## Production deploy
+
+Публичный URL приложения: **https://booking-api.fly.dev**
+
+Имя Fly-приложения — ключ `app` в [`fly.toml`](fly.toml). Fly.io выдаёт адрес
+`https://<app>.fly.dev` автоматически, даже без custom domain, поэтому URL
+выше — не ручная копия, а производная от `app`: правка `app` в `fly.toml`
+меняет и канонический URL, и он не расходится с фактическим деплоем. Расхождение
+записей ловит drift-тест [`test/production-url.test.ts`](test/production-url.test.ts).
+
+### Последовательность деплоя
+
+1. `fly apps create booking-api` — имя глобально уникально на fly.io.
+2. `fly secrets set OWNER_NAME=… …` — секреты живут вне репозитория, runbook:
+   [Secrets](docs/agents/production-secrets.md).
+3. `fly deploy` — build из корневого `Dockerfile`, конфиг — `fly.toml`.
+4. `fly scale count 1` — ровно один инстанс (верхняя граница — в `fly.toml`).
+5. `scripts/production-smoke.sh https://booking-api.fly.dev` — post-deploy
+   smoke (тикет #57): скрипт выводит тот же канонический URL из `fly.toml`.
+
+DNS-записи, custom domain и TLS-сертификат — runbook
+[docs/agents/production-dns-tls.md](docs/agents/production-dns-tls.md) (тикет #56).
+
+### Если имя `booking-api` на fly.io занято
+
+Имя Fly-приложения глобально-уникально: если `booking-api` уже занят, владелец
+релиза правит ключ `app` в [`fly.toml`](fly.toml) и обновляет URL в этом же
+разделе — одна правка, один PR. До синхронизации записей drift-тест падает:
+адрес в репозитории и фактический деплой разойдутся.
+
 ## UI / E2E
 
 Frontend и end-to-end тесты — отдельная итерация карты #26 («Booking API v1 — UI & E2E»). Этот раздел собирает команды и правила для фронтенд-инженеров; сам код появится в последующих тикетах той же карты.
