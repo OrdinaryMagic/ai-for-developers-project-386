@@ -77,9 +77,9 @@ function parseToml(source: string): TomlDoc {
 }
 
 /** Значение без кавычек (`"3000"` → `3000`). */
-function str(value: string | undefined): string {
+function unquoted(value: string | undefined): string {
   if (value === undefined) return "";
-  return value.replace(/^"(.*)"$/, "$1");
+  return value.replace(/^"(.*)"$/, "$1").replace(/^'(.*)'$/, "$1");
 }
 
 /** Все значения конфига (top-level + секции) — для проверки «single region». */
@@ -128,7 +128,7 @@ describe("fly.toml — production deploy config (#54)", () => {
   it("собирает image из корневого Dockerfile", () => {
     const doc = parseToml(readRepoFile("fly.toml"));
 
-    expect(str(doc.tables["build"]?.[0]?.dockerfile)).toBe("Dockerfile");
+    expect(unquoted(doc.tables["build"]?.[0]?.dockerfile)).toBe("Dockerfile");
     // Dockerfile в корне — тот самый multi-stage image (cart #42).
     expect(readRepoFile("Dockerfile")).toContain('CMD ["node", "dist/server.js"]');
   });
@@ -138,11 +138,11 @@ describe("fly.toml — production deploy config (#54)", () => {
     const env = doc.tables["env"]?.[0] ?? {};
     const httpService = doc.tables["http_service"]?.[0] ?? {};
 
-    expect(str(env.PORT)).toBe("3000");
-    expect(str(env.HOST)).toBe("0.0.0.0");
-    expect(str(env.NODE_ENV)).toBe("production");
+    expect(unquoted(env.PORT)).toBe("3000");
+    expect(unquoted(env.HOST)).toBe("0.0.0.0");
+    expect(unquoted(env.NODE_ENV)).toBe("production");
     // Fly Proxy роутит трафик на internal_port — он обязан совпадать с PORT.
-    expect(Number(str(httpService.internal_port))).toBe(3000);
+    expect(Number(unquoted(httpService.internal_port))).toBe(3000);
     // Контракт Dockerfile: PORT=3000 внутри image (fallback для docker run).
     expect(readRepoFile("Dockerfile")).toMatch(/^ENV PORT=3000$/m);
   });
@@ -160,8 +160,8 @@ describe("fly.toml — production deploy config (#54)", () => {
     const checks = doc.tables["http_service.checks"] ?? [];
 
     expect(checks).toHaveLength(1);
-    expect(str(checks[0].method)).toBe("GET");
-    expect(str(checks[0].path)).toBe("/health");
+    expect(unquoted(checks[0].method)).toBe("GET");
+    expect(unquoted(checks[0].path)).toBe("/health");
     // Путь должен совпадать с реальным эндпоинтом API.
     expect(readRepoFile("src/routes/health.ts")).toContain('app.get("/health"');
   });
@@ -173,18 +173,21 @@ describe("fly.toml — production deploy config (#54)", () => {
     // AC #56: все HTTP-запросы к приложению редиректятся на HTTPS.
     // Ключ `force_https` в секции [http_service] — по docs.fly.io/reference/configuration
     // ("A Boolean which determines whether to enforce HTTP to HTTPS redirects").
-    expect(str(httpService.force_https)).toBe("true");
+    expect(unquoted(httpService.force_https)).toBe("true");
   });
 
   it("single primary region", () => {
     const doc = parseToml(readRepoFile("fly.toml"));
-    const primaryRegion = str(doc.root.primary_region);
+    const primaryRegion = unquoted(doc.root.primary_region);
 
     expect(primaryRegion).toBe("iad");
     // Multi-region вне scope (AC #54): других регионов в конфиге быть не должно.
-    const otherRegions = allValues(doc).filter(
-      (value) => FLY_REGION_CODES.includes(value) && value !== primaryRegion,
-    );
+    // Сравниваем РАЗОБРАННЫЕ значения (без кавычек): сырые значения вида
+    // `"fra"` никогда не совпали бы с кодами регионов из FLY_REGION_CODES,
+    // и проверка была бы всегда зелёной (вакуумный тест).
+    const otherRegions = allValues(doc)
+      .map((value) => unquoted(value))
+      .filter((value) => FLY_REGION_CODES.includes(value) && value !== primaryRegion);
     expect(otherRegions).toEqual([]);
   });
 
@@ -192,10 +195,10 @@ describe("fly.toml — production deploy config (#54)", () => {
     const doc = parseToml(readRepoFile("fly.toml"));
     const httpService = doc.tables["http_service"]?.[0] ?? {};
 
-    expect(Number(str(httpService.min_machines_running))).toBe(1);
+    expect(Number(unquoted(httpService.min_machines_running))).toBe(1);
     // "off" = Fly Proxy никогда не останавливает машины по простою (нет scale-to-zero).
-    expect(str(httpService.auto_stop_machines)).toBe("off");
-    expect(str(httpService.auto_start_machines)).toBe("true");
+    expect(unquoted(httpService.auto_stop_machines)).toBe("off");
+    expect(unquoted(httpService.auto_start_machines)).toBe("true");
     // У Fly в fly.toml нет ключа max_machines_running — верхняя граница 1/1
     // выражается командой `fly scale count 1` (см. комментарий в fly.toml).
     expect(httpService.max_machines_running).toBeUndefined();
@@ -205,9 +208,9 @@ describe("fly.toml — production deploy config (#54)", () => {
   it("ресурсы: shared-cpu-1x и RAM ≤ 1GB", () => {
     const doc = parseToml(readRepoFile("fly.toml"));
     const vm = doc.tables["vm"]?.[0] ?? {};
-    const memoryMb = memoryToMb(str(vm.memory));
+    const memoryMb = memoryToMb(unquoted(vm.memory));
 
-    expect(str(vm.size)).toBe("shared-cpu-1x");
+    expect(unquoted(vm.size)).toBe("shared-cpu-1x");
     expect(memoryMb).toBeGreaterThan(0);
     expect(memoryMb).toBeLessThanOrEqual(1024);
   });
