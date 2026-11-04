@@ -71,6 +71,12 @@ create booking-api` не пройдёт. Тогда владелец:
 3. сверяет фактический hostname с записанным в репозитории каноническим URL
    (`fly status`) — это требование тикета #62.
 
+Канонический публичный URL живёт в одном месте — раздел
+[«Production deploy»](../../README.md#production-deploy) в `README.md`: он
+выводится из ключа `app` в `fly.toml`, поэтому правка `app` меняет и URL в
+README. Расхождение записей (забыли поправить README или `fly.toml`) ловит
+drift-тест [`test/production-url.test.ts`](../../test/production-url.test.ts).
+
 ```bash
 fly apps create booking-api
 fly status          # фактический hostname приложения (напр. booking-api.fly.dev)
