@@ -299,6 +299,32 @@ DNS-записи, custom domain и TLS-сертификат — runbook
 разделе — одна правка, один PR. До синхронизации записей drift-тест падает:
 адрес в репозитории и фактический деплой разойдутся.
 
+## DNS / TLS
+
+Публичный домен и HTTPS-сертификат booking-api на Fly.io. Полный runbook для
+владельца релиза — [docs/agents/production-dns-tls.md](docs/agents/production-dns-tls.md)
+(тикет #56).
+
+Коротко:
+
+1. **Имя приложения** — глобально-уникально; берётся из ключа `app` в
+   [`fly.toml`](fly.toml). Если имя занято — создать другое и **в том же PR**
+   поправить `app` (канонический URL — тикет #62).
+2. **DNS-запись** — для поддомена (`booking.example.com`) CNAME на
+   `<app>.fly.dev`; для apex (`example.com`) — A + AAAA на адреса приложения
+   (`fly ips list`). CNAME на apex невозможен; схемы CNAME и A/AAAA не
+   смешивают.
+3. **Сертификат** — `fly certs add booking.example.com`: Fly сам выпускает
+   managed Let's Encrypt-сертификат и сам его обновляет (внешний ACME-cron не
+   нужен).
+4. **HTTP→HTTPS redirect** — ключ `force_https = true` в `[http_service]`
+   [`fly.toml`](fly.toml) (вступает в силу после `fly deploy`).
+5. **Проверки** — `https://booking.example.com/` → 200, `/health` → 200
+   `{"status":"ok"}`, `/config` → 200 Configuration JSON.
+
+Диагностика (pending-сертификат, несошедшийся DNS, CAA-записи, 502/health-check)
+и процедура отката — в runbook'е.
+
 ## UI / E2E
 
 Frontend и end-to-end тесты — отдельная итерация карты #26 («Booking API v1 — UI & E2E»). Этот раздел собирает команды и правила для фронтенд-инженеров; сам код появится в последующих тикетах той же карты.

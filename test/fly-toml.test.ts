@@ -218,4 +218,19 @@ describe("fly.toml — production deploy config (#54)", () => {
     expect(adr).toContain("fly.toml");
     expect(adr).toMatch(/\(\.\.\/\.\.\/fly\.toml\)/);
   });
+
+  it("runbook DNS/TLS (#56) на месте и связан со смежными артефактами", () => {
+    const runbook = readRepoFile("docs/agents/production-dns-tls.md");
+
+    // Runbook — основной артефакт тикета #56: без живого домена и Fly-аккаунта
+    // именно он описывает выдачу сертификата, DNS-записи и проверки.
+    expect(runbook).toContain("fly certs add");
+    expect(runbook).toContain("fly ips list");
+    expect(runbook).toContain("force_https");
+    // Смежные артефакты карты #52 — по ним runbook и ведёт владельца релиза.
+    expect(runbook).toContain("../adr/0004-hosting-platform.md");
+    expect(runbook).toContain("production-secrets.md");
+    // README ведёт на runbook (раздел «DNS / TLS»).
+    expect(readRepoFile("README.md")).toContain("docs/agents/production-dns-tls.md");
+  });
 });
