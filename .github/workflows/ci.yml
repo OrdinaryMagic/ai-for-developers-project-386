@@ -234,6 +234,10 @@ jobs:
           done
           curl -fsS http://127.0.0.1:3030/health | tee /tmp/health.json
           curl -fsS http://127.0.0.1:3030/ | tee /tmp/root.json
+          # Cart #42 / ticket #46 — spec требует smoke по `/meeting-types`
+          # в дополнение к `/` и `/health`. 200 ожидается на свежем
+          # in-memory store (см. `src/routes/meeting-types.ts:51`).
+          curl -fsS http://127.0.0.1:3030/meeting-types | tee /tmp/meeting-types.json
 
       # Чистим контейнер на любом исходе задачи — даже если smoke-curl
       # упал и job красится красным. `|| true` гасит ненулевой exit,
