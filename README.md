@@ -132,7 +132,7 @@ v1 сознательно узок по объёму и по модели хра
 - **Хранилище в памяти процесса.** Типы встреч и записи живут в памяти процесса ([Storage](GLOSSARY.md)). Любой рестарт — `npm start`, `fly deploy`, `docker restart`, OOM-kill — стирает всё. Дисклеймер по ТЗ и фиксация решения — [ADR-0001](docs/adr/0001-in-memory-store-with-restart-reset.md); переход на персистентное хранилище отложен в отдельную итерацию.
 - **Один процесс — одна копия состояния.** Multi-instance деплой (`fly scale`, k8s `replicas > 1`) рассинхронизирует типы встреч и записи между репликами. v1 этого не решает: пишите либо за одним процессом, либо готовьте реальное shared-хранилище (см. [ADR-0001](docs/adr/0001-in-memory-store-with-restart-reset.md), расширение — [ADR-0002](docs/adr/0002-single-writer-in-memory-store.md)).
 - **Конкурентность через in-process `AsyncLock`.** Снимко-чтения (`/availability`, `/bookings`) и мутации (`POST /bookings`) сериализуются одним мьютексом на `BookingStore`. Это пропускная способность, ограниченная одним ядром; для горизонтального масштабирования требуется DB-уровень изоляции ([ADR-0001](docs/adr/0001-in-memory-store-with-restart-reset.md), детали шва `acquire/release` под будущую транзакцию — [ADR-0002](docs/adr/0002-single-writer-in-memory-store.md)).
-- **Один владелец на развёртывание.** Конфигурация владельца читается из env: `OWNER_NAME`, `OWNER_EMAIL`, `OWNER_TIMEZONE`, `WORKING_HOURS_*`, `SLOT_STEP_MINUTES`, `WINDOW_DAYS`. Менять владельца = пересборка и перезапуск. UI владельца отсутствует (см. [GLOSSARY.md](GLOSSARY.md), раздел «Out of scope для v1»).
+- **Один владелец на развёртывание.** Конфигурация владельца читается из env: `OWNER_NAME`, `OWNER_TIMEZONE`, `OWNER_WINDOW_DAYS`, `OWNER_SLOT_STEP_MINUTES`, `OWNER_WORKING_HOURS_START`, `OWNER_WORKING_HOURS_END` (полный контракт — [Secrets](#secrets)). Менять владельца = пересборка и перезапуск. UI владельца отсутствует (см. [GLOSSARY.md](GLOSSARY.md), раздел «Out of scope для v1»).
 
 ### Не предоставляется в v1
 
@@ -219,6 +219,165 @@ pre-commit hook ловит утечку до `git push`, CI ловит то, ч�
 настоящие утечки. Smoke-чек никуда не коммитит fake-secret — он
 работает только в staging area. Для проверки CI-слоя: push в любую
 ветку и `gh run watch <run-id>`.
+
+## Secrets
+
+Production-конфигурация и секреты живут **вне репозитория**. Полный runbook —
+[docs/agents/production-secrets.md](docs/agents/production-secrets.md).
+
+- **Шаблон env-контракта** — [`.env.example`](.env.example) в корне репозитория:
+  имена переменных + значения по умолчанию (дефолты из кода; для `HOST` и
+  `NODE_ENV` — production-значения). Секретов в шаблоне нет: ни одно из этих
+  значений секретом не является. Файлов `.env` / `.env.production` с реальными
+  значениями в репозитории нет и быть не должно (оба в `.gitignore`).
+- **Платформа — Fly.io** ([ADR-0004](docs/adr/0004-hosting-platform.md)):
+  несекретное (`PORT`, `HOST`, `NODE_ENV`) — в `fly.toml [env]` (тикет #54);
+  секреты — только через `fly secrets set` или dashboard Fly, значение секрета
+  нельзя прочитать обратно.
+- **Ротация:** `fly secrets set` → редеплой → smoke-проверка (`GET /health`,
+  `GET /config`, `GET /meeting-types`). При утечке — смена значения, редеплой и
+  инвалидация всего, что выдавалось на старом значении.
+- **Учтите:** `fly secrets set` перезапускает Machines, а значит стирает
+  in-memory store ([ADR-0001](docs/adr/0001-in-memory-store-with-restart-reset.md)).
+  Смена секрета — операция в окне, где записок мало.
+
+## MCP
+
+Проектная конфигурация MCP для агента (OpenCode) лежит в
+[`.opencode/opencode.json`](.opencode/opencode.json). Серверы объявлены в
+каноническом V2-пути `mcp.servers`: `fly-mcp` (remote, Fly.io) и `shadcn`
+(local). Полный runbook — [docs/agents/production-mcp.md](docs/agents/production-mcp.md).
+
+```bash
+# Подключить fly-mcp глобально (чтобы работало и в других проектах):
+opencode mcp add --global fly-mcp --url https://mcp.fly.io
+
+# Залогиниться через OAuth (откроется браузер, выбрать организацию):
+opencode mcp auth fly-mcp
+
+# Проверить статус подключения:
+opencode mcp list
+```
+
+- **Логин:** либо `opencode mcp auth fly-mcp`, либо в интерфейсе агента
+  `/mcps` → `fly-mcp` → sign in. В этом репозитории подключение уже
+  объявлено, поэтому достаточно авторизоваться.
+- **Секреты:** OAuth-токены и любые секреты хранятся **вне репозитория** — в
+  конфиге пользователя (`~/.config/opencode/opencode.jsonc`). В репозиторий
+  попадают только публичные URL и команды; токенов в `.opencode/opencode.json`
+  нет и быть не должно.
+- **Что даёт `fly-mcp`:** управление Fly Apps, Machines, volumes, app-secrets и
+  TLS-сертификатами (плюс Managed Postgres и Sprites). Например,
+  `list_app_secrets` показывает имена секретов и их digest'ы, но **не
+  значения**.
+
+## Production deploy
+
+Публичный URL приложения: **https://booking-api.fly.dev**
+
+Имя Fly-приложения — ключ `app` в [`fly.toml`](fly.toml). Fly.io выдаёт адрес
+`https://<app>.fly.dev` автоматически, даже без custom domain, поэтому URL
+выше — не ручная копия, а производная от `app`: правка `app` в `fly.toml`
+меняет и канонический URL, и он не расходится с фактическим деплоем. Расхождение
+записей ловит drift-тест [`test/production-url.test.ts`](test/production-url.test.ts).
+
+### Последовательность деплоя
+
+1. `fly apps create booking-api` — имя глобально уникально на fly.io.
+2. `fly secrets set OWNER_NAME=… …` — секреты живут вне репозитория, runbook:
+   [Secrets](docs/agents/production-secrets.md).
+3. `fly deploy` — build из корневого `Dockerfile`, конфиг — `fly.toml`.
+4. `fly scale count 1 --max-per-region 1` — верхняя граница инстансов: ровно
+   одна машина. Границу задаёт runtime-команда: в схеме `fly.toml` у Fly нет
+   ключа `max_machines_running`, поэтому в конфиге зафиксирован только минимум
+   (`min_machines_running = 1`).
+   **Не масштабируйте больше одной машины:** state живёт в памяти процесса, а
+   записи сериализуются одним in-process мьютексом — второй инстанс ломает
+   single-writer-контракт и рассинхронизирует данные
+   ([ADR-0001](docs/adr/0001-in-memory-store-with-restart-reset.md),
+   [ADR-0002](docs/adr/0002-single-writer-in-memory-store.md)).
+5. `scripts/production-smoke.sh https://booking-api.fly.dev` — post-deploy
+   smoke (тикет #57): скрипт выводит тот же канонический URL из `fly.toml`.
+
+DNS-записи, custom domain и TLS-сертификат — runbook
+[docs/agents/production-dns-tls.md](docs/agents/production-dns-tls.md) (тикет #56).
+
+### Post-deploy smoke
+
+Шаг 5 последовательности деплоя — smoke-проверка живого инстанса
+(скрипт [`scripts/production-smoke.sh`](scripts/production-smoke.sh), тикет #57):
+
+```bash
+scripts/production-smoke.sh                              # default URL — из fly.toml
+scripts/production-smoke.sh https://booking-api.fly.dev   # явный URL
+```
+
+Без аргумента скрипт берёт base URL из ключа `app` в [`fly.toml`](fly.toml)
+(`https://<app>.fly.dev`): канонический адрес не зашит в скрипт, поэтому
+переименование приложения не оставляет скрипт со старым URL. Явный аргумент
+(`http://…` или `https://…`) пригодится для проверки против локальной копии.
+
+Что проверяется:
+
+| Эндпоинт             | Ожидание                           |
+| -------------------- | ---------------------------------- |
+| `GET /`              | 200                                |
+| `GET /health`        | 200, тело содержит `"status":"ok"` |
+| `GET /config`        | 200, тело — валидный JSON          |
+| `GET /meeting-types` | 200, тело — валидный JSON-массив   |
+
+Пустой массив `[]` в `/meeting-types` — норма для свежего деплоя. Непустой
+массив — только WARNING (инстанс, на котором уже есть типы встречи, —
+норма), падением считаются не-массив, невалидный JSON и не-2xx.
+
+Коды возврата: `0` — все проверки прошли (`✅ PASS`), non-zero — есть
+провалившиеся проверки (`❌ FAIL` со списком упавших эндпоинтов).
+
+Требования к окружению: `bash`, `curl` и `node` — `node` валидирует JSON
+(`jq` может отсутствовать). Ставить ничего не нужно.
+
+Retry-loop как safety net: при rolling-деплое Fly Proxy коротко отдаёт 502,
+пока машина перезапускается, поэтому каждая проверка повторяется до
+`SMOKE_RETRIES` раз (по умолчанию 5) с паузой `SMOKE_RETRY_DELAY` секунд
+(по умолчанию 3); номер попытки печатается в лог. Скорость повторов
+настраивается переменными окружения:
+
+```bash
+SMOKE_RETRIES=10 SMOKE_RETRY_DELAY=5 scripts/production-smoke.sh
+```
+
+### Если имя `booking-api` на fly.io занято
+
+Имя Fly-приложения глобально-уникально: если `booking-api` уже занят, владелец
+релиза правит ключ `app` в [`fly.toml`](fly.toml) и обновляет URL в этом же
+разделе — одна правка, один PR. До синхронизации записей drift-тест падает:
+адрес в репозитории и фактический деплой разойдутся.
+
+## DNS / TLS
+
+Публичный домен и HTTPS-сертификат booking-api на Fly.io. Полный runbook для
+владельца релиза — [docs/agents/production-dns-tls.md](docs/agents/production-dns-tls.md)
+(тикет #56).
+
+Коротко:
+
+1. **Имя приложения** — глобально-уникально; берётся из ключа `app` в
+   [`fly.toml`](fly.toml). Если имя занято — создать другое и **в том же PR**
+   поправить `app` (канонический URL — тикет #62).
+2. **DNS-запись** — для поддомена (`booking.example.com`) CNAME на
+   `<app>.fly.dev`; для apex (`example.com`) — A + AAAA на адреса приложения
+   (`fly ips list`). CNAME на apex невозможен; схемы CNAME и A/AAAA не
+   смешивают.
+3. **Сертификат** — `fly certs add booking.example.com`: Fly сам выпускает
+   managed Let's Encrypt-сертификат и сам его обновляет (внешний ACME-cron не
+   нужен).
+4. **HTTP→HTTPS redirect** — ключ `force_https = true` в `[http_service]`
+   [`fly.toml`](fly.toml) (вступает в силу после `fly deploy`).
+5. **Проверки** — `https://booking.example.com/` → 200, `/health` → 200
+   `{"status":"ok"}`, `/config` → 200 Configuration JSON.
+
+Диагностика (pending-сертификат, несошедшийся DNS, CAA-записи, 502/health-check)
+и процедура отката — в runbook'е.
 
 ## UI / E2E
 

@@ -1,12 +1,18 @@
 node_modules/
 dist/
 coverage/
+# Agent worktrees живут внутри репозитория (.worktrees/<ticket>-*):
+# без игнора их содержимое попадает в `git status` и в прогоны линтера/форматтера.
+.worktrees/
 *.log
 .env
 .env.*
 !.env.example
 .mise.local.toml
-.opencode/
+# `.opencode/` — локальное состояние агента (сессии, кэш), но проектная
+# MCP-конфигурация `.opencode/opencode.json` — версионируемый артефакт (#63).
+.opencode/*
+!.opencode/opencode.json
 .idea/
 *.tsbuildinfo
 # Playwright artifacts (см. тикет #34 → Wave C карты #26):
