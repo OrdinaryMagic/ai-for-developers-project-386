@@ -137,16 +137,20 @@ scripts/production-smoke.sh
 curl -sS -o /dev/null -w '%{http_code}\n' https://booking-api-production-b3a4.up.railway.app/
 curl -sS https://booking-api-production-b3a4.up.railway.app/health
 curl -sS -o /dev/null -w '%{http_code}\n' https://booking-api-production-b3a4.up.railway.app/config
+# UI на том же домене (ADR-0006): браузерный Accept → оболочка SPA.
+curl -sS -o /dev/null -w '%{http_code} %{content_type}\n' \
+  -H 'Accept: text/html' https://booking-api-production-b3a4.up.railway.app/
 ```
 
 Ожидания:
 
-| Эндпоинт             | Ожидание                           |
-| -------------------- | ---------------------------------- |
-| `GET /`              | 200                                |
-| `GET /health`        | 200, тело содержит `"status":"ok"` |
-| `GET /config`        | 200, тело — валидный JSON          |
-| `GET /meeting-types` | 200, тело — валидный JSON-массив   |
+| Эндпоинт                      | Ожидание                                      |
+| ----------------------------- | --------------------------------------------- |
+| `GET /`                       | 200                                           |
+| `GET /health`                 | 200, тело содержит `"status":"ok"`            |
+| `GET /config`                 | 200, тело — валидный JSON                     |
+| `GET /meeting-types`          | 200, тело — валидный JSON-массив              |
+| `GET /` (`Accept: text/html`) | 200, `content-type: text/html` — оболочка SPA |
 
 Сверка с фактическим деплоем:
 

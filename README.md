@@ -158,6 +158,17 @@ docker build -t booking-api .
 docker run --env PORT=3030 --publish 3030:3030 booking-api
 ```
 
+**В образе — и API, и собранный фронтенд.** Dockerfile состоит из трёх стадий:
+`web-builder` (сборка SPA из workspace `web/` → `web/dist`), `builder`
+(`tsc` → `dist/`) и `runtime` (prod-зависимости + `dist/` + `web/dist`).
+Один сервис отдаёт и API, и интерфейс на одном домене — решение
+[ADR-0006](docs/adr/0006-single-origin-spa.md). Проверить локально:
+
+```bash
+curl -s http://127.0.0.1:3030/                       # {"hello":"world"} — API-клиенту
+curl -s -H 'Accept: text/html' http://127.0.0.1:3030/   # оболочка SPA — браузеру
+```
+
 **Почему нет `docker` в Makefile.** В этом репозитории `make` —
 dev-инструмент (`make dev` / `make start`); Docker image — это
 продуктовый артефакт для деплоя, и собирают его напрямую через
@@ -319,6 +330,25 @@ single-writer-контракт и рассинхронизирует данны�
 DNS-записи, custom domain и TLS-сертификат — runbook
 [docs/agents/production-dns-tls.md](docs/agents/production-dns-tls.md) (тикет #56).
 
+### UI на том же домене
+
+Сервис отдаёт **и API, и собранный фронтенд** на одном адресе — решение
+[ADR-0006](docs/adr/0006-single-origin-spa.md). Отдельного деплоя под UI нет и не
+планируется: второй origin означал бы CORS, второй домен и второй деплой.
+
+| Запрос                                  | Ответ                                            |
+| --------------------------------------- | ------------------------------------------------ |
+| `GET /` (без `Accept: text/html`)       | `{"hello":"world"}` — контракт API из спеки      |
+| `GET /` (браузер, `Accept: text/html`)  | оболочка SPA — открывается интерфейс             |
+| `GET /assets/…`                         | статика сборки, `cache-control: immutable`       |
+| `GET /admin/event-types` (браузер)      | оболочка SPA — клиентский маршрут (SPA-fallback) |
+| `GET /config`, `/meeting-types`, …      | API, канонические пути из `spec/*.tsp`           |
+| `GET /api/config`, `/api/meeting-types` | тот же API: алиас-префикс `/api/*`               |
+
+Алиас `/api/*` нужен фронтенду: в dev его снимает Vite-прокси, в production — сам
+backend (`src/routes/api.ts`). Канонические пути API при этом не меняются, спека
+`spec/*.tsp` и `openapi.yaml` не трогаются.
+
 ### Post-deploy smoke
 
 Шаг 6 последовательности деплоя — smoke-проверка живого инстанса
@@ -337,16 +367,23 @@ URL. Явный аргумент (`http://…` или `https://…`) приго�
 
 Что проверяется:
 
-| Эндпоинт             | Ожидание                           |
-| -------------------- | ---------------------------------- |
-| `GET /`              | 200                                |
-| `GET /health`        | 200, тело содержит `"status":"ok"` |
-| `GET /config`        | 200, тело — валидный JSON          |
-| `GET /meeting-types` | 200, тело — валидный JSON-массив   |
+| Эндпоинт                                       | Ожидание                                            |
+| ---------------------------------------------- | --------------------------------------------------- |
+| `GET /`                                        | 200                                                 |
+| `GET /health`                                  | 200, тело содержит `"status":"ok"`                  |
+| `GET /config`                                  | 200, тело — валидный JSON                           |
+| `GET /meeting-types`                           | 200, тело — валидный JSON-массив                    |
+| `GET /` (`Accept: text/html`)                  | 200, `content-type: text/html` — оболочка SPA       |
+| `GET /admin/event-types` (`Accept: text/html`) | 200, `content-type: text/html` — клиентский маршрут |
 
 Пустой массив `[]` в `/meeting-types` — норма для свежего деплоя. Непустой
 массив — только WARNING (инстанс, на котором уже есть типы встречи, —
 норма), падением считаются не-массив, невалидный JSON и не-2xx.
+
+Последние две проверки — UI: сервис отдаёт и API, и собранный фронтенд на одном
+домене ([ADR-0006](docs/adr/0006-single-origin-spa.md)). Запрос идёт с
+`Accept: text/html` — так его отправляет браузер, — поэтому проверка видит
+именно оболочку приложения, а не JSON-API.
 
 Коды возврата: `0` — все проверки прошли (`✅ PASS`), non-zero — есть
 провалившиеся проверки (`❌ FAIL` со списком упавших эндпоинтов).
@@ -404,6 +441,19 @@ Frontend и end-to-end тесты — отдельная итерация кар
 - `npm run gen:sdk` — регенерировать `web/src/api/sdk.ts` из `openapi.yaml` (генератор `openapi-typescript@7.13.0`, тикет #29). Прогон обязателен после любой правки `spec/*.tsp` и после изменения `openapi.yaml` релизом — см. AGENTS.md rule #9.
 - `npm run test:e2e` — Playwright end-to-end против реального Fastify-сервера (Wave C, тикет #34). Сам поднимает backend через `playwright.config.ts::webServer` (Fastify на `E2E_API_PORT`, по умолчанию 3030) и Vite dev-сервер на 5173; внешний `make start` не требуется ни локально, ни в CI.
 - `npm run test:e2e:install` — `npx playwright install --with-deps chromium`, разовая установка браузера для e2e.
+
+### Где живёт фронтенд в production
+
+В production фронтенд **не отдельный деплой**: тот же сервис отдаёт собранный `web/dist`
+вместе с API на одном домене ([ADR-0006](docs/adr/0006-single-origin-spa.md), раздел
+«UI на том же домене»). Практические следствия для фронтенд-инженера:
+
+- Пути API в клиентском коде остаются с префиксом `/api` — в dev его срезает
+  Vite-прокси, в production backend-алиас. Менять клиентские `fetch` не нужно.
+- Клиентские маршруты (`/book/:id`, `/admin/event-types`) обслуживает SPA-fallback:
+  сервер отдаёт для них `index.html`, а не 404.
+- `npm run build:web` нужен только для локальной проверки; в образ фронтенд
+  собирается сам (стадия `web-builder` в `Dockerfile`).
 
 ### Волны карты #26
 
