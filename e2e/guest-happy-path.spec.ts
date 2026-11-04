@@ -64,8 +64,8 @@ test("guest happy path: select meeting type, pick slot, submit, see success UUID
   await expect(page.getByTestId("book-grid")).toBeVisible({ timeout: 10_000 });
 
   // Свободные слоты — это `slot-{iso-datetime}`; первый видимый берём.
-  // Окно «14 дней от сейчас» гарантирует, что в любой текущий момент хотя
-  // бы дневной слот 09:00 владельца-TZ свободен.
+  // Сетка отдаёт только слоты в будущем (уже начавшиеся не предлагаются),
+  // поэтому первый слот всегда валиден для записи.
   const slot = page.getByTestId(/^slot-/).first();
   await expect(slot).toBeVisible({ timeout: 10_000 });
   await slot.click();

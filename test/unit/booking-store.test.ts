@@ -48,7 +48,7 @@ describe("BookingStore.book happy path", () => {
     const out = await store.book(
       {
         meetingTypeId: mt.id,
-        startsAt: iso(2025, 11, 3, 9, 0),
+        startsAt: iso(2025, 11, 3, 15, 0),
         guestName: "A",
         guestEmail: "a@x.test",
       },
@@ -61,16 +61,16 @@ describe("BookingStore.book happy path", () => {
     expect(out.booking.meetingTypeName).toBe("Stand-up");
     expect(out.booking.guestName).toBe("A");
     expect(out.booking.guestEmail).toBe("a@x.test");
-    expect(out.booking.startsAt).toBe(iso(2025, 11, 3, 9, 0));
-    expect(out.booking.endsAt).toBe(iso(2025, 11, 3, 9, 30));
+    expect(out.booking.startsAt).toBe(iso(2025, 11, 3, 15, 0));
+    expect(out.booking.endsAt).toBe(iso(2025, 11, 3, 15, 30));
   });
 
-  it("back-to-back: 10:00 после 09:30 разрешён", async () => {
+  it("back-to-back: 15:30 после 15:00 разрешён", async () => {
     const mt = mtByName("Stand-up");
     const first = await store.book(
       {
         meetingTypeId: mt.id,
-        startsAt: iso(2025, 11, 3, 9, 0),
+        startsAt: iso(2025, 11, 3, 15, 0),
         guestName: "A",
         guestEmail: "a@x.test",
       },
@@ -80,7 +80,7 @@ describe("BookingStore.book happy path", () => {
     const second = await store.book(
       {
         meetingTypeId: mt.id,
-        startsAt: iso(2025, 11, 3, 9, 30),
+        startsAt: iso(2025, 11, 3, 15, 30),
         guestName: "B",
         guestEmail: "b@x.test",
       },
@@ -139,12 +139,30 @@ describe("BookingStore.book error paths", () => {
     expect(out.error.code).toBe("OUTSIDE_WINDOW");
   });
 
+  it("возвращает OUTSIDE_WINDOW для слота, который уже начался", async () => {
+    // now = 2025-11-03 14:00, слот 09:00 того же дня — в прошлом.
+    const mt = mtByName("Stand-up");
+    const out = await store.book(
+      {
+        meetingTypeId: mt.id,
+        startsAt: iso(2025, 11, 3, 9, 0),
+        guestName: "A",
+        guestEmail: "a@x.test",
+      },
+      { now },
+    );
+    expect(out.ok).toBe(false);
+    if (out.ok) return;
+    expect(out.error.code).toBe("OUTSIDE_WINDOW");
+    expect(out.error.message).toMatch(/уже начался/i);
+  });
+
   it("возвращает OUTSIDE_WORKING_HOURS для старта до 09:00", async () => {
     const mt = mtByName("Stand-up");
     const out = await store.book(
       {
         meetingTypeId: mt.id,
-        startsAt: iso(2025, 11, 3, 8, 30),
+        startsAt: iso(2025, 11, 4, 8, 30),
         guestName: "A",
         guestEmail: "a@x.test",
       },
@@ -177,7 +195,7 @@ describe("BookingStore.book error paths", () => {
     const out = await store.book(
       {
         meetingTypeId: mt.id,
-        startsAt: iso(2025, 11, 3, 9, 15),
+        startsAt: iso(2025, 11, 3, 15, 15),
         guestName: "A",
         guestEmail: "a@x.test",
       },
@@ -188,12 +206,12 @@ describe("BookingStore.book error paths", () => {
     expect(out.error.code).toBe("MISMATCH_STEP");
   });
 
-  it("возвращает SLOT_TAKEN при частичном пересечении (10:00-10:15)", async () => {
+  it("возвращает SLOT_TAKEN при частичном пересечении (14:30-15:30 против 15:00-15:30)", async () => {
     const mt = mtByName("Stand-up");
     await store.book(
       {
         meetingTypeId: mt.id,
-        startsAt: iso(2025, 11, 3, 10, 0),
+        startsAt: iso(2025, 11, 3, 15, 0),
         guestName: "A",
         guestEmail: "a@x.test",
       },
@@ -203,7 +221,7 @@ describe("BookingStore.book error paths", () => {
     const out = await store.book(
       {
         meetingTypeId: mtLong.id,
-        startsAt: iso(2025, 11, 3, 9, 30),
+        startsAt: iso(2025, 11, 3, 14, 30),
         guestName: "B",
         guestEmail: "b@x.test",
       },
@@ -219,7 +237,7 @@ describe("BookingStore.book error paths", () => {
     await store.book(
       {
         meetingTypeId: mtA.id,
-        startsAt: iso(2025, 11, 3, 11, 0),
+        startsAt: iso(2025, 11, 3, 16, 0),
         guestName: "A",
         guestEmail: "a@x.test",
       },
@@ -229,7 +247,7 @@ describe("BookingStore.book error paths", () => {
     const out = await store.book(
       {
         meetingTypeId: mtB.id,
-        startsAt: iso(2025, 11, 3, 11, 0),
+        startsAt: iso(2025, 11, 3, 16, 0),
         guestName: "B",
         guestEmail: "b@x.test",
       },
@@ -248,7 +266,7 @@ describe("BookingStore concurrency", () => {
       store.book(
         {
           meetingTypeId: mt.id,
-          startsAt: iso(2025, 11, 3, 13, 0),
+          startsAt: iso(2025, 11, 3, 16, 0),
           guestName: "A",
           guestEmail: "a@x.test",
         },
@@ -257,7 +275,7 @@ describe("BookingStore concurrency", () => {
       store.book(
         {
           meetingTypeId: mt.id,
-          startsAt: iso(2025, 11, 3, 13, 0),
+          startsAt: iso(2025, 11, 3, 16, 0),
           guestName: "B",
           guestEmail: "b@x.test",
         },
@@ -276,7 +294,7 @@ describe("BookingStore concurrency", () => {
         store.book(
           {
             meetingTypeId: mt.id,
-            startsAt: iso(2025, 11, 3, 14, 0),
+            startsAt: iso(2025, 11, 3, 17, 0),
             guestName: `Guest${i}`,
             guestEmail: `g${i}@x.test`,
           },
@@ -331,9 +349,11 @@ describe("BookingStore.list", () => {
     expect(list[2].startsAt).toBe(iso(2025, 11, 5, 9, 0));
   });
 
-  it("отфильтровывает записи со стартом до now", async () => {
+  it("не создаёт запись на слот, который уже начался (в списке её не будет)", async () => {
+    // now = 2025-11-03 14:00. Слот 10:00 того же дня — в прошлом: запись на
+    // него не создаётся, поэтому и в списке (только будущие) её не будет.
     const mt = mtByName("Stand-up");
-    await store.book(
+    const past = await store.book(
       {
         meetingTypeId: mt.id,
         startsAt: iso(2025, 11, 3, 10, 0),
@@ -342,6 +362,9 @@ describe("BookingStore.list", () => {
       },
       { now },
     );
+    expect(past.ok).toBe(false);
+    if (!past.ok) expect(past.error.code).toBe("OUTSIDE_WINDOW");
+
     await store.book(
       {
         meetingTypeId: mt.id,
@@ -358,7 +381,7 @@ describe("BookingStore.list", () => {
 });
 
 describe("BookingStore.availability", () => {
-  it("для нового типа возвращает все слоты в окне", async () => {
+  it("для нового типа возвращает слоты в окне, отбрасывая уже начавшиеся", async () => {
     const mt = mtByName("Stand-up");
     const out = await store.availability(mt.id, now);
     expect(out.ok).toBe(true);
@@ -367,10 +390,26 @@ describe("BookingStore.availability", () => {
     expect(out.value.days).toHaveLength(14);
     // Первый день — 2025-11-03
     expect(out.value.days[0].date).toBe("2025-11-03");
-    expect(out.value.days[0].slots[0]).toBe(iso(2025, 11, 3, 9, 0));
-    // 09:00..17:30 с шагом 30 — это 18 слотов; последний — 17:30 (заканчивается в 18:00)
-    expect(out.value.days[0].slots).toHaveLength(18);
+    // now = 14:00: слоты 09:00..13:30 уже начались — их в сетке нет,
+    // остаются 14:30..17:30 с шагом 30 (последний заканчивается в 18:00).
+    expect(out.value.days[0].slots[0]).toBe(iso(2025, 11, 3, 14, 30));
+    expect(out.value.days[0].slots).toHaveLength(7);
     expect(out.value.days[0].slots.at(-1)).toBe(iso(2025, 11, 3, 17, 30));
+    // Будущие дни не тронуты: полный рабочий день, 18 слотов.
+    expect(out.value.days[1].date).toBe("2025-11-04");
+    expect(out.value.days[1].slots).toHaveLength(18);
+    expect(out.value.days[1].slots[0]).toBe(iso(2025, 11, 4, 9, 0));
+  });
+
+  it("не отдаёт слоты, которые уже начались", async () => {
+    const mt = mtByName("Stand-up");
+    const out = await store.availability(mt.id, now);
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    const slotsDay0 = out.value.days[0].slots;
+    expect(slotsDay0).not.toContain(iso(2025, 11, 3, 9, 0));
+    expect(slotsDay0).not.toContain(iso(2025, 11, 3, 13, 30));
+    expect(slotsDay0).not.toContain(iso(2025, 11, 3, 14, 0));
   });
 
   it("исключает слоты, занятые другим meeting-type", async () => {
@@ -378,7 +417,7 @@ describe("BookingStore.availability", () => {
     await store.book(
       {
         meetingTypeId: mt.id,
-        startsAt: iso(2025, 11, 3, 12, 0),
+        startsAt: iso(2025, 11, 3, 15, 0),
         guestName: "X",
         guestEmail: "x@x.test",
       },
@@ -389,9 +428,9 @@ describe("BookingStore.availability", () => {
     expect(out.ok).toBe(true);
     if (!out.ok) return;
     const slotsDay0 = out.value.days[0].slots;
-    expect(slotsDay0).not.toContain(iso(2025, 11, 3, 12, 0));
-    expect(slotsDay0).toContain(iso(2025, 11, 3, 11, 30));
-    expect(slotsDay0).toContain(iso(2025, 11, 3, 12, 30));
+    expect(slotsDay0).not.toContain(iso(2025, 11, 3, 15, 0));
+    expect(slotsDay0).toContain(iso(2025, 11, 3, 14, 30));
+    expect(slotsDay0).toContain(iso(2025, 11, 3, 15, 30));
   });
 
   it("MEETING_TYPE_NOT_FOUND для несуществующего типа", async () => {

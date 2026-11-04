@@ -43,6 +43,7 @@ export class BookingStore {
    * Создаёт бронирование, если:
    * 1. `meetingTypeId` существует;
    * 2. `startsAt` корректный ISO и попадает в текущее окно;
+   * 2a. `startsAt` — в будущем (слот, который уже начался, не бронируется);
    * 3. `[startsAt, startsAt + meetingType.duration)` лежит в рабочих часах;
    * 4. `startsAt` выровнен по `slotStepMinutes`;
    * 5. нет уже сделанной записи, пересекающейся по интервалу (в том числе
@@ -85,6 +86,20 @@ export class BookingStore {
     const win = boundsFor(options.now, this.config.windowDays, tz);
     if (startDt < win.start || startDt >= win.end) {
       return { ok: false, error: makeDomainError("OUTSIDE_WINDOW") };
+    }
+
+    // (2c) Слот должен быть в будущем. Окно начинается с 00:00 текущего дня,
+    //     поэтому «сегодняшние» слоты, которые уже начались, формально в окно
+    //     попадают — но записаться на них нельзя: список владельца показывает
+    //     только предстоящие бронирования (контракт `GET /bookings`), и такая
+    //     запись была бы невидима. Раньше сетка отдавала эти слоты, гость мог
+    //     на них записаться — и запись «терялась». Теперь правило одно: слот,
+    //     который уже начался, не предлагается и не принимается.
+    if (startDt.toMillis() <= options.now.toMillis()) {
+      return {
+        ok: false,
+        error: makeDomainError("OUTSIDE_WINDOW", "Этот слот уже начался — выберите время позже."),
+      };
     }
 
     // (3) Рабочие часы.
@@ -147,6 +162,12 @@ export class BookingStore {
    * Сетка свободных слотов для конкретного `meetingTypeId` в текущем окне.
    * Слот, занятый записью с любым `meetingTypeId`, считается занятым. Под локом
    * берётся снимок записей; далее мы итерируем сетку, проверяя пересечение.
+   *
+   * Слоты, которые **уже начались**, в сетку не попадают: окно начинается с
+   * 00:00 текущего дня, поэтому без этого фильтра гость увидел бы (и мог бы
+   * занять) сегодняшние часы, которые прошли — запись на такой слот
+   * отвергается доменом (см. `book`) и никогда не появилась бы в списке
+   * владельца.
    */
   async availability(
     meetingTypeId: string,
@@ -166,6 +187,7 @@ export class BookingStore {
       endMin: parseHHMM(this.config.workingHours.end),
     };
     const snapshot = await this.snapshot();
+    const nowMs = now.toMillis();
 
     const dayStarts: DateTime[] = [];
     for (let d = 0; d < this.config.windowDays; d++) {
@@ -187,12 +209,15 @@ export class BookingStore {
         const slotEnd = cur.plus({ minutes: mt.durationMinutes });
         const curMs = cur.toMillis();
         const endMs = slotEnd.toMillis();
-        const occupied = snapshot.some((b) => {
-          const bs = DateTime.fromISO(b.startsAt).toMillis();
-          const be = DateTime.fromISO(b.endsAt).toMillis();
-          return curMs < be && bs < endMs;
-        });
-        if (!occupied) slots.push(cur.toISO({ suppressMilliseconds: true })!);
+        // Уже начавшийся слот не предлагаем (см. doc-комментарий метода).
+        if (curMs > nowMs) {
+          const occupied = snapshot.some((b) => {
+            const bs = DateTime.fromISO(b.startsAt).toMillis();
+            const be = DateTime.fromISO(b.endsAt).toMillis();
+            return curMs < be && bs < endMs;
+          });
+          if (!occupied) slots.push(cur.toISO({ suppressMilliseconds: true })!);
+        }
         cur = cur.plus({ minutes: this.config.slotStepMinutes });
       }
       return { date: dayBase.toISODate()!, slots };

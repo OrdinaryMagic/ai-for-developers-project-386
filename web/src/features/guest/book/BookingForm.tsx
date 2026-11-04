@@ -57,7 +57,7 @@ export interface BookingFormProps {
  */
 export const BOOKING_ERROR_MESSAGES: Readonly<Record<DomainError["code"], string>> = {
   SLOT_TAKEN: "Слот уже занят, выберите другое время.",
-  OUTSIDE_WINDOW: "Этот слот вне окна бронирования, выберите другой.",
+  OUTSIDE_WINDOW: "Это время уже прошло или вне окна бронирования — выберите другой слот.",
   OUTSIDE_WORKING_HOURS: "Этот слот вне рабочих часов владельца, выберите другой.",
   MISMATCH_STEP: "Старт слота не выровнен по шагу сетки, обновите страницу.",
   MEETING_TYPE_NOT_FOUND: "Тип встречи больше не доступен.",

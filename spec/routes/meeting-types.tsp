@@ -19,7 +19,7 @@ namespace MeetingTypes {
   @route("/{id}")
   op getById(@path id: string): MeetingType | DomainError;
 
-  @doc("Получить свободные слоты типа встречи в текущем окне бронирования (14 дней). Если тип встречи не существует — тело содержит `DomainError`.")
+  @doc("Получить свободные слоты типа встречи в текущем окне бронирования (14 дней). Слоты, которые уже начались, не отдаются: в сетку попадают только старты в будущем. Если тип встречи не существует — тело содержит `DomainError`.")
   @get
   @route("/{id}/availability")
   op availability(@path id: string): Availability | DomainError;

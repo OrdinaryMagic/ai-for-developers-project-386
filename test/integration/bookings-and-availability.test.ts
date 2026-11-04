@@ -116,7 +116,7 @@ describe("POST /bookings", () => {
       url: "/bookings",
       payload: {
         meetingTypeId,
-        startsAt: "2025-11-03T08:30:00+03:00",
+        startsAt: "2025-11-04T08:30:00+03:00",
         guestName: "A",
         guestEmail: "a@x.test",
       },
@@ -185,7 +185,10 @@ describe("POST /bookings", () => {
     expect(codes).toEqual([200, 409]);
   });
 
-  it("принимает слот в день now, но уже прошедший (deliberate per Q16.8)", async () => {
+  it("отвергает слот, который уже начался (422 OUTSIDE_WINDOW)", async () => {
+    // now = 2025-11-03 14:00 (fixedClock). Слот 09:00 того же дня — в прошлом:
+    // записаться на него нельзя, иначе запись была бы не видна в списке
+    // владельца (там только предстоящие).
     const { server, meetingTypeId } = await makeApp();
     const res = await server.inject({
       method: "POST",
@@ -197,7 +200,8 @@ describe("POST /bookings", () => {
         guestEmail: "p@x.test",
       },
     });
-    expect(res.statusCode).toBe(200);
+    expect(res.statusCode).toBe(422);
+    expect(res.json().code).toBe("OUTSIDE_WINDOW");
   });
 
   it("отвергает не-email формат через Fastify-schema (400)", async () => {
@@ -271,8 +275,8 @@ describe("GET /bookings", () => {
 
   it("не показывает записи со стартом до now (owner list — предстоящие)", async () => {
     const { server, meetingTypeId } = await makeApp();
-    // 09:00 сегодня при now=14:00 — это прошлое.
-    await server.inject({
+    // 09:00 сегодня при now=14:00 — это прошлое: запись не создаётся (422).
+    const past = await server.inject({
       method: "POST",
       url: "/bookings",
       payload: {
@@ -282,6 +286,7 @@ describe("GET /bookings", () => {
         guestEmail: "p@x.test",
       },
     });
+    expect(past.statusCode).toBe(422);
     await server.inject({
       method: "POST",
       url: "/bookings",
@@ -300,7 +305,7 @@ describe("GET /bookings", () => {
 });
 
 describe("GET /meeting-types/:id/availability", () => {
-  it("возвращает 14-дневную сетку слотов", async () => {
+  it("возвращает 14-дневную сетку слотов без уже начавшихся", async () => {
     const { server, meetingTypeId } = await makeApp();
     const res = await server.inject({
       method: "GET",
@@ -311,8 +316,12 @@ describe("GET /meeting-types/:id/availability", () => {
     expect(body.meetingTypeId).toBe(meetingTypeId);
     expect(body.days).toHaveLength(14);
     expect(body.days[0].date).toBe("2025-11-03");
-    expect(body.days[0].slots[0]).toBe("2025-11-03T09:00:00+03:00");
+    // now = 14:00: сегодня отдаются только слоты 14:30..17:30.
+    expect(body.days[0].slots[0]).toBe("2025-11-03T14:30:00+03:00");
     expect(body.days[0].slots.at(-1)).toBe("2025-11-03T17:30:00+03:00");
+    expect(body.days[0].slots).toHaveLength(7);
+    // Будущие дни — полный рабочий день.
+    expect(body.days[1].slots).toHaveLength(18);
   });
 
   it("исключает занятые слоты (cross-type тоже)", async () => {
@@ -327,7 +336,7 @@ describe("GET /meeting-types/:id/availability", () => {
       url: "/bookings",
       payload: {
         meetingTypeId,
-        startsAt: "2025-11-03T12:00:00+03:00",
+        startsAt: "2025-11-03T15:00:00+03:00",
         guestName: "X",
         guestEmail: "x@x.test",
       },
@@ -337,9 +346,9 @@ describe("GET /meeting-types/:id/availability", () => {
       url: `/meeting-types/${other.json().id}/availability`,
     });
     const slotsDay0 = res.json().days[0].slots;
-    expect(slotsDay0).not.toContain("2025-11-03T12:00:00+03:00");
-    expect(slotsDay0).toContain("2025-11-03T11:30:00+03:00");
-    expect(slotsDay0).toContain("2025-11-03T12:30:00+03:00");
+    expect(slotsDay0).not.toContain("2025-11-03T15:00:00+03:00");
+    expect(slotsDay0).toContain("2025-11-03T14:30:00+03:00");
+    expect(slotsDay0).toContain("2025-11-03T15:30:00+03:00");
   });
 
   it("404 MEETING_TYPE_NOT_FOUND для несуществующего типа", async () => {
@@ -354,7 +363,7 @@ describe("GET /meeting-types/:id/availability", () => {
 });
 
 describe("Конфликт слотов разной длительности", () => {
-  it("возвращает 409 SLOT_TAKEN при частичном наложении (60 мин 10:00 vs 30 мин 10:30)", async () => {
+  it("возвращает 409 SLOT_TAKEN при частичном наложении (60 мин 15:00 vs 30 мин 15:30)", async () => {
     const { server } = await makeApp();
     const long = await server.inject({
       method: "POST",
@@ -374,7 +383,7 @@ describe("Конфликт слотов разной длительности", 
       url: "/bookings",
       payload: {
         meetingTypeId: long.json().id,
-        startsAt: "2025-11-03T10:00:00+03:00",
+        startsAt: "2025-11-03T15:00:00+03:00",
         guestName: "LongGuest",
         guestEmail: "long@x.test",
       },
@@ -386,7 +395,7 @@ describe("Конфликт слотов разной длительности", 
       url: "/bookings",
       payload: {
         meetingTypeId: short.json().id,
-        startsAt: "2025-11-03T10:30:00+03:00",
+        startsAt: "2025-11-03T15:30:00+03:00",
         guestName: "ShortGuest",
         guestEmail: "short@x.test",
       },
@@ -395,7 +404,7 @@ describe("Конфликт слотов разной длительности", 
     expect(partialOverlap.json().code).toBe("SLOT_TAKEN");
   });
 
-  it("встык (60 мин 10:00, 30 мин 11:00) разрешено — нет пересечения", async () => {
+  it("встык (60 мин 15:00, 30 мин 16:00) разрешено — нет пересечения", async () => {
     const { server } = await makeApp();
     const long = await server.inject({
       method: "POST",
@@ -413,7 +422,7 @@ describe("Конфликт слотов разной длительности", 
       url: "/bookings",
       payload: {
         meetingTypeId: long.json().id,
-        startsAt: "2025-11-03T10:00:00+03:00",
+        startsAt: "2025-11-03T15:00:00+03:00",
         guestName: "L",
         guestEmail: "l@x.test",
       },
@@ -424,7 +433,7 @@ describe("Конфликт слотов разной длительности", 
       url: "/bookings",
       payload: {
         meetingTypeId: short.json().id,
-        startsAt: "2025-11-03T11:00:00+03:00",
+        startsAt: "2025-11-03T16:00:00+03:00",
         guestName: "Adj",
         guestEmail: "adj@x.test",
       },
