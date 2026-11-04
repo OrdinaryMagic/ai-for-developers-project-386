@@ -163,6 +163,45 @@ describe("smoke против живого приложения", () => {
   });
 });
 
+describe("валидация числовых env-переменных", () => {
+  const cases = [
+    { name: "SMOKE_RETRIES", value: "abc" },
+    { name: "SMOKE_RETRY_DELAY", value: "abc" },
+    { name: "SMOKE_CURL_TIMEOUT", value: "abc" },
+  ];
+
+  for (const { name, value } of cases) {
+    it(`невалидный ${name} → понятное сообщение, non-zero exit и итоговый FAIL`, async () => {
+      const run = await runSmoke([liveBaseUrl], { [name]: value });
+
+      expect(run.code, run.output).not.toBe(0);
+      // Имя переменной в сообщении — чтобы было понятно, что именно не так.
+      expect(run.output).toContain(name);
+      // Итоговая строка-сводка, а не тихий обрыв на середине скрипта.
+      expect(run.output).toContain("❌ FAIL:");
+    });
+
+    it(`невалидный ${name} отсекается до retry-цикла`, async () => {
+      const run = await runSmoke([liveBaseUrl], { [name]: value });
+
+      // Ни одной попытки проверки: валидация обязана быть ДО цикла, иначе
+      // скрипт сначала пять раз повторит упавший запрос, а потом умрёт.
+      expect(run.output).not.toContain("attempt 1/");
+    });
+  }
+
+  it("валидные значения принимаются (граница: 0, 1 и большие числа)", async () => {
+    const run = await runSmoke([liveBaseUrl], {
+      SMOKE_RETRIES: "1",
+      SMOKE_RETRY_DELAY: "0",
+      SMOKE_CURL_TIMEOUT: "30",
+    });
+
+    expect(run.code, run.output).toBe(0);
+    expect(run.output).toContain("PASS");
+  });
+});
+
 describe("default-URL выводится из fly.toml", () => {
   it("в скрипте нет захардкоженного публичного адреса", () => {
     const source = readFileSync(SCRIPT_PATH, "utf8");

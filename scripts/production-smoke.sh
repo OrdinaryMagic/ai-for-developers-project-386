@@ -35,6 +35,10 @@
 #   SMOKE_RETRY_DELAY  — seconds between attempts (default 3)
 #   SMOKE_CURL_TIMEOUT — per-request timeout in seconds (default 10)
 #
+#   All three must be non-negative integers (SMOKE_RETRIES and SMOKE_CURL_TIMEOUT
+#   must be >= 1). An invalid value aborts the run before any check with a
+#   "❌ FAIL: …" message on stderr — never halfway through the retry loop.
+#
 # Requires: bash, curl, node (node validates JSON — jq may be absent).
 
 set -euo pipefail
@@ -127,6 +131,20 @@ die() {
   exit 1
 }
 
+# validate_uint <name> <value> <minimum> — значение обязано быть целым числом
+# >= minimum. Невалидное значение — понятное сообщение в stderr и non-zero
+# exit (с итоговой строкой «❌ FAIL: …»), а не тихий обрыв внутри цикла.
+validate_uint() {
+  local name="$1"
+  local value="$2"
+  local minimum="$3"
+
+  case "${value}" in
+    '' | *[!0-9]*) die "${name} must be a non-negative integer, got: ${value}" ;;
+  esac
+  [ "${value}" -ge "${minimum}" ] || die "${name} must be >= ${minimum}, got: ${value}"
+}
+
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "required command not found: $1"
 }
@@ -134,6 +152,9 @@ require_cmd() {
 # Top-level `app` key of fly.toml — the Fly application name.
 # The canonical public URL is derived from it: https://<app>.fly.dev
 fly_app_name() {
+  # The JS source below is intentionally single-quoted: the shell must NOT
+  # expand anything inside it — it is JavaScript, not a shell template.
+  # shellcheck disable=SC2016
   node --input-type=module -e '
 import { readFileSync } from "node:fs";
 
@@ -248,10 +269,11 @@ main() {
   require_cmd curl
   require_cmd node
 
-  case "${RETRIES}" in
-    '' | *[!0-9]*) die "SMOKE_RETRIES must be a positive integer, got: ${RETRIES}" ;;
-  esac
-  [ "${RETRIES}" -ge 1 ] || die "SMOKE_RETRIES must be >= 1, got: ${RETRIES}"
+  # Числовые env-переменные валидируем до цикла проверок: невалидное значение
+  # должно давать понятный FAIL, а не падать внутри `sleep`/`curl`.
+  validate_uint "SMOKE_RETRIES" "${RETRIES}" 1
+  validate_uint "SMOKE_RETRY_DELAY" "${RETRY_DELAY}" 0
+  validate_uint "SMOKE_CURL_TIMEOUT" "${CURL_TIMEOUT}" 1
 
   if [ "$#" -ge 1 ] && [ -n "${1:-}" ]; then
     BASE_URL="${1%/}"
