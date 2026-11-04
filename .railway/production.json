@@ -1,0 +1,11 @@
+{
+  "platform": "railway",
+  "projectId": "dcdc3e6c-f49c-4040-83b8-2ced035325a4",
+  "projectName": "booking-api",
+  "serviceId": "0032d152-af0a-48b4-96e2-4feff1eb2c9a",
+  "serviceName": "booking-api",
+  "environmentId": "3fce1cf2-7cd3-42f2-8288-993f1b07c0d2",
+  "environmentName": "production",
+  "region": "us-east4-eqdc4a",
+  "publicUrl": "https://booking-api-production-b3a4.up.railway.app"
+}
