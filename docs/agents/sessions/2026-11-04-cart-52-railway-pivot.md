@@ -56,6 +56,7 @@ layout-роут, чтобы шапка была на всех маршрутах
 | Регион / реплики | `us-east4-eqdc4a`, 1 реплика                                                   |
 | Деплой           | `6af873be-1fd6-4667-82eb-c401c80b9258` — SUCCESS, commit `743c520` (шапка SPA) |
 | Деплой (фикс)    | `a38894ff-31ca-4a19-8e36-3876e14883f4` — SUCCESS, commit `3898485` (#74)       |
+| Деплой (релиз)   | `9c3aebfe-b2c6-44cd-9328-8d7c23970083` — SUCCESS, commit `06d4242` (v1.2.0)    |
 | Деплой (база)    | `e901cc30-20d0-4b3b-bbb7-2c7cf6c8322e` — SUCCESS, commit `287107e`             |
 
 Проверка после деплоя: `scripts/production-smoke.sh` → **`✅ PASS: 6/6 checks passed`**
@@ -173,8 +174,11 @@ layout-роут, чтобы шапка была на всех маршрутах
 - CI на `main` (`287107e`, `2f2d01f`, `743c520`, `3898485`): `Project checks`, `build`,
   `End-to-end tests (Playwright)`, `Build Docker image + smoke test` — success.
 - Живой деплой после каждого squash: `287107e` → `e901cc30` (SUCCESS), `743c520` → `6af873be`
-  (SUCCESS), `3898485` → `a38894ff` (SUCCESS); после `2f2d01f` отдельного редеплоя не было —
+  (SUCCESS), `3898485` → `a38894ff` (SUCCESS), `06d4242` (релиз 1.2.0) → `9c3aebfe` (SUCCESS —
+  живой стенд синхронизирован с `origin/main`); после `2f2d01f` отдельного редеплоя не было —
   коммит попал в образ `6af873be`.
+- Релиз **v1.2.0** опубликован через release-PR #71 (squash `06d4242`); в его changelog —
+  фичи #72/#68 и фикс #74.
 
 ## Open follow-ups
 
