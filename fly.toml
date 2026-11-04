@@ -1,0 +1,82 @@
+# fly.toml — production-deploy config для booking-api v1.
+#
+# Платформа выбрана в ADR-0004 (docs/adr/0004-hosting-platform.md, тикет #53),
+# этот файл — реализация тикета #54. Файл коммитится в репозиторий и правится
+# руками (это НЕ generated-артефакт: AGENTS.md rule #9 касается openapi.yaml,
+# SDK, CHANGELOG.md и package.json#version).
+#
+# Что описано ниже (acceptance criteria #54):
+#   - build из корневого Dockerfile (multi-stage image из cart #42);
+#   - [env] — только несекретные значения, секреты через `fly secrets set` (#55);
+#   - health-check `GET /health` (эндпоинт есть в src/routes/health.ts);
+#   - single primary region `iad` (Ashburn) — multi-region вне scope;
+#   - min/max инстансов 1/1 — scale-to-zero вне scope по AC #54;
+#   - ресурсы shared-cpu-1x / 256MB RAM (≤ 1GB по AC).
+#
+# Runbook (владелец релиза, cart #52):
+#   1) fly apps create booking-api        # имя должно быть уникальным на fly.io
+#   2) fly secrets set OWNER_NAME=… …      # секреты — вне репо, см. #55
+#   3) fly deploy                          # build из Dockerfile + запуск 1 машины
+#   4) fly scale count 1                   # верхняя граница: ровно 1 машина
+#   5) scripts/production-smoke.sh https://<host>   # post-deploy smoke, см. #57
+#
+# Если имя "booking-api" на fly.io уже занято — создай приложение под другим
+# именем и поправь ключ `app` ниже (или деплой с флагом `fly deploy -a <name>`).
+
+# Имя Fly App. Первое key/value в файле — по конвенции flyctl.
+app = "booking-api"
+
+# Single primary region. `fly deploy` создаёт машины здесь и выставляет
+# PRIMARY_REGION в их окружении. Второй регион — вне scope v1 (cart #52).
+primary_region = "iad"
+
+[build]
+# Multi-stage Dockerfile в корне репозитория (cart #42): builder → runtime.
+dockerfile = "Dockerfile"
+
+[env]
+# Только несекретные значения. Секреты (OWNER_* и прочие) — `fly secrets set`.
+PORT = "3000"
+HOST = "0.0.0.0"
+NODE_ENV = "production"
+
+[http_service]
+# Порт приложения внутри машины — совпадает с PORT из [env].
+internal_port = 3000
+# Машина поднимается сама, если её остановили.
+auto_start_machines = true
+# AC #54: scale-to-zero вне scope — Fly Proxy никогда не останавливает машину
+# по простою. Вместе с min_machines_running = 1 это даёт «ровно 1 инстанс».
+auto_stop_machines = "off"
+min_machines_running = 1
+
+# Health-check: Fly Proxy опрашивает машину по приватной сети и не пускает
+# к ней трафик, пока ответ не 2xx. Путь — существующий эндпоинт API.
+[[http_service.checks]]
+method = "GET"
+path = "/health"
+interval = "30s"
+timeout = "5s"
+grace_period = "10s"
+
+[[vm]]
+# Минимальный релевантный shape (ADR-0004): shared-cpu-1x, 256MB RAM (≤ 1GB).
+size = "shared-cpu-1x"
+memory = "256mb"
+
+[deploy]
+# Rolling: единственная машина заменяется на время деплоя (короткий простой).
+# Zero-downtime (canary/bluegreen) вне scope cart #52 — canary требует
+# временно вторую машину, что ломает контракт 1/1.
+strategy = "rolling"
+
+# Max instances = 1: в схеме fly.toml у Fly нет ключа max_machines_running
+# (проверено по docs.fly.io/reference/configuration и исходникам flyctl —
+# internal/appconfig/service.go). Верхняя граница задаётся runtime-командой:
+#
+#   fly scale count 1
+#
+# и сохраняется при последующих `fly deploy` (docs.fly.io/scaling: «the
+# resulting scale is preserved by fly deploy»). Горизонтальный autoscale
+# исключён и структурно: in-memory BookingStore не переживает multi-instance
+# (ADR-0001, ADR-0002).

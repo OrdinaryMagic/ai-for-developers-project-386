@@ -25,15 +25,15 @@ accepted
 
 ### Почему Fly.io совпадает с AC
 
-| AC-фактор (#53)                                 | Fly.io                                       | Подтверждение                      |
-| ----------------------------------------------- | -------------------------------------------- | ---------------------------------- |
-| Native Docker support                           | Да, `fly deploy` принимает Dockerfile        | cart #42 Dockerfile deploy-command |
-| Managed TLS + auto-renew                        | Let's Encrypt через `[[services.tls]]`       | docs.fly.io/tls                    |
-| Env-vars (secrets) через dashboard              | `fly secrets set`, dashboard `Secrets` UI    | docs.fly.io/secrets                |
-| Single-region pricing для v1                    | ~\$2-7/mo за 256-512MB `shared-cpu-1x`       | docs/pricing (Ashburn/EWR)         |
-| Health check / auto-restart на crash            | `[[services.checks]]` + autostart            | docs/scaling                       |
-| Deploy time <5 min от push до running container | `fly deploy` <2 min для нашего размера image | bench наблюдается                  |
-| Sleep/scale-to-zero vs always-on                | `auto_stop_machines = "stop"` (default)      | docs/launch/autostop-autostart     |
+| AC-фактор (#53)                                 | Fly.io                                                                         | Подтверждение                      |
+| ----------------------------------------------- | ------------------------------------------------------------------------------ | ---------------------------------- |
+| Native Docker support                           | Да, `fly deploy` принимает Dockerfile                                          | cart #42 Dockerfile deploy-command |
+| Managed TLS + auto-renew                        | Let's Encrypt через `[http_service.tls_options]`                               | docs.fly.io/tls                    |
+| Env-vars (secrets) через dashboard              | `fly secrets set`, dashboard `Secrets` UI                                      | docs.fly.io/secrets                |
+| Single-region pricing для v1                    | ~\$2.19-3.69/mo за 256-512MB `shared-cpu-1x` (сверено 2026-11-04)              | docs/pricing (Ashburn/EWR)         |
+| Health check / auto-restart на crash            | `[[http_service.checks]]` + autostart                                          | docs/scaling                       |
+| Deploy time <5 min от push до running container | `fly deploy` <2 min для нашего размера image                                   | bench наблюдается                  |
+| Sleep/scale-to-zero vs always-on                | `auto_stop_machines = "stop"` (дефолт Fly на момент research — см. drift ниже) | docs/launch/autostop-autostart     |
 
 Scale-to-zero cold-start ~2s на Docker image в `stopped` state приемлема: smoke-check (см. #57) — `GET /health` против URL; первая пост-deploy проверка — после warm-up, не критичная по латентности.
 
@@ -41,15 +41,18 @@ Scale-to-zero cold-start ~2s на Docker image в `stopped` state приемле
 
 Минимальный релевантный shape: `shared-cpu-1x` 256MB RAM в `iad` или `ewr` (нижние по прайсу регионы). При scale-to-zero (`min_machines_running = 0`) и ~2 часах активной работы в сутки (пост-deploy smoke + редкие запросы гостей), по примеру из docs:
 
-| Item                           | Monthly cost |
-| ------------------------------ | -----------: |
-| Machine running 2h/день прокси |      ~\$0.31 |
-| 1GB rootfs пока stopped        |      ~\$0.14 |
-| **Total без volume**           |  **~\$0.45** |
+| Item                                   | Monthly cost |
+| -------------------------------------- | -----------: |
+| Machine running 2h/день прокси (256MB) |      ~\$0.18 |
+| Machine running 2h/день прокси (512MB) |      ~\$0.31 |
+| 1GB rootfs пока stopped                |      ~\$0.15 |
+| **Total без volume** (выбранный 256MB) |  **~\$0.33** |
 
 Без volume (in-memory store, ADR-0001) — нижняя граница. Первая сертификация TLS — бесплатная (одна из 10 free для одной организации).
 
-Маркер **#verify-pricing**: цифры \$3.69/month и \$2.19/month взяты с docs.fly.io/about/pricing в этой сессии (`#[research/52-hosting]`) и в момент landing-коммита `0004` (#54) требуют повторной проверки против актуальной pricing-page. Fly может изменить конкретные числа; **структурное решение (Fly.io) от price drift не зависит**.
+Always-on-вариант (машина не останавливается — см. drift-note про 1/1 ниже): **\$2.19/мес** за 256MB или **\$3.69/мес** за 512MB; rootfs в `stopped` при этом не тарифицируется вовсе.
+
+Маркер **#verify-pricing** — **проверено 2026-11-04** (тикет #54, страница <https://fly.io/about/pricing/>): `shared-cpu-1x` 256MB = **\$2.19**/месяц, 512MB = **\$3.69**/месяц, 1GB = \$6.70/месяц — совпадает с цифрами research-сессии, без изменений; stopped-Machine rootfs = **\$0.15** за 1GB за 30 дней (в этом ADR было \$0.14 — цифра обновлена); «the smallest always-on app» = \$2.19 за 30 дней; таблица цен дана для `iad`/`ewr` («our lowest-priced regions»); первые 10 single-hostname сертификатов — free. Итог пересчёта: scale-to-zero-модель (2 ч активной работы/сутки) даёт **~\$0.33**/мес на выбранном 256MB-shape, always-on (1/1) — **\$2.19**/мес. Fly может изменить конкретные числа; **структурное решение (Fly.io) от price drift не зависит**.
 
 ## Альтернативы
 
@@ -71,15 +74,16 @@ Scale-to-zero cold-start ~2s на Docker image в `stopped` state приемле
 
 ## Следствия
 
-- `fly.toml` коммитится в репо (per ADR #54 file path: именно этот файл). Версия конфигурации — одна из единых точек PR-review, рядом с `Dockerfile`. Это **не сгенерированный файл** (AGENTS.md rule #9 применяется к `openapi.yaml`/SDK/CHANGELOG.md/version; `fly.toml` редактируется руками).
+- Файл конфигурации production-размещения — [`fly.toml`](../../fly.toml) в корне репозитория (реализация тикета #54). Он описывает: build из корневого `Dockerfile`, несекретный `[env]` (`PORT=3000`, `HOST=0.0.0.0`, `NODE_ENV=production`), health-check `GET /health`, primary region `iad`, ресурсы `shared-cpu-1x` / 256MB RAM и min/max инстансов 1/1. Версия конфигурации — одна из единых точек PR-review, рядом с `Dockerfile`. Это **не сгенерированный файл** (AGENTS.md rule #9 применяется к `openapi.yaml`/SDK/CHANGELOG.md/version; `fly.toml` редактируется руками).
 - Secrets (`OWNER_*`, прочие env) выставляются через `fly secrets set` и не появляются в репо. `fly.toml [env]` хранит только несекретные значения (`PORT=3000`, `HOST=0.0.0.0`, `NODE_ENV=production`). См. тикет #55 + новый файл `docs/agents/production-secrets.md`.
-- Health-check path в `fly.toml → [[services.checks]]` указывает на `GET /health` (уже есть в booking-api, см. `src/routes/health.ts`).
-- scale-to-zero подразумевает, что **smoke-check после deploy (#57) должен сначала trigger warm-up** (один `curl`, поднимающий машину из `stopped`-state), затем проверять status. Single-endpoint smoke — это 2-step: GET /health с retry-loop, или отдельный `wake` curl перед `assert`. Это drift в #57, который не покрыт spec'ом #53.
+- Health-check path в `fly.toml → [[http_service.checks]]` указывает на `GET /health` (уже есть в booking-api, см. `src/routes/health.ts`). Имена ключей Fly уточнены 2026-11-04 по docs.fly.io/reference/configuration: для секции `[http_service]` health-check объявляется как `[[http_service.checks]]`, а `[[services.checks]]` (как было записано в первоначальной редакции этого ADR) в схеме Fly не существует — у `[[services]]` есть только `[[services.http_checks]]` и `[[services.tcp_checks]]`.
+- scale-to-zero подразумевает, что **smoke-check после deploy (#57) должен сначала trigger warm-up** (один `curl`, поднимающий машину из `stopped`-state), затем проверять status. Single-endpoint smoke — это 2-step: GET /health с retry-loop, или отдельный `wake` curl перед `assert`. Это drift в #57, который не покрыт spec'ом #53. **Актуально только для scale-to-zero-конфигурации; при 1/1 (см. drift-note ниже) машина не останавливается и warm-up не нужен.**
+- **Drift (тикет #54, 2026-11-04) — scale-to-zero выключен.** Этот ADR описывает v1 как scale-to-zero (`min_machines_running = 0`, cold-start ~2s, «2 часа активной работы в сутки»), но acceptance criteria тикета #54 требуют min/max инстансов **1/1** и прямо выводят scale-to-zero за рамки задачи. В `fly.toml` зафиксировано `min_machines_running = 1` + `auto_stop_machines = "off"` → приложение всегда онлайн, cold-start и warm-up-retry в smoke (#57) не нужны. Следствия: (а) стоимость — always-on **\$2.19/мес** за `shared-cpu-1x` 256MB вместо ~\$0.33/мес при scale-to-zero (пересчёт — в разделе «Размер инстанса и оценка стоимости»); (б) отдельного ключа `max_machines_running` в `fly.toml` у Fly нет — верхняя граница 1/1 задаётся runtime-командой `fly scale count 1` (зафиксировано комментарием в самом `fly.toml`); (в) по текущим docs дефолт Fly для `auto_stop_machines` — `"off"`, а не `"stop"`, как было записано в таблице выше, поэтому значение в `fly.toml` проставлено явно. Структурное решение (платформа Fly.io, single-region, in-memory store) при этом не меняется.
 - Multi-region: пока single primary (`iad` или `ewr`). Перенос в другую географию — ADR-0005+ или новая карта **Observability/failover**.
 - ADR-0001 хранилище (in-memory) и single-instance продолжают действовать: горизонтальный autoscale **исключён** — иначе потеряется booking-state.
 - Backup/restore: out-of-scope этой карты; ADR-0001 уже отложил любую персистентность.
 - Observability/Datadog/Sentry: out-of-scope этой карты; следующая «Observability», если потребуется.
-- **#verify-pricing drift**: после merge этой карты и при первом коммите `fly.toml` (#54) нужно перепроверить конкретные цифры Fly (особенно если со времени этой сессии прошло >1 квартал). Структурное решение «Fly vs Render/Railway» от price drift не меняется, но конкретный выбранный shape (`shared-cpu-1x` 256MB, `min_machines_running = 0/1`) — может быть скорректирован по факту.
+- **#verify-pricing drift**: сверка выполнена **2026-11-04** при landing-коммита `fly.toml` (#54) — см. раздел «Размер инстанса и оценка стоимости»: \$2.19/\$3.69 подтверждены, стоимость stopped-rootfs уточнена (\$0.14 → \$0.15), выбранный shape (`shared-cpu-1x` 256MB) не изменился; min/max инстансов скорректирован до 1/1 по AC #54. Повторная сверка нужна, если со времени проверки пройдёт больше квартала. Структурное решение «Fly vs Render/Railway» от price drift не меняется.
 
 ## Что НЕ меняется этим ADR
 
@@ -92,5 +96,6 @@ Scale-to-zero cold-start ~2s на Docker image в `stopped` state приемле
 ## Trace
 
 - **Принятое решение**: cart #52 «Production deployment for booking-api v1 (post-image)», research-ticket #53 «Pick hosting platform + ADR-0004».
+- **Файл конфигурации**: [`fly.toml`](../../fly.toml) (корень репозитория) — реализация тикета #54; health-check объявлен как `[[http_service.checks]]`, min/max инстансов 1/1, primary region `iad`.
 - **Source-of-truth для цифр**: docs.fly.io/about/pricing, docs.fly.io/launch/autostop-autostart, docs.fly.io/scaling — загружено в этой research-сессии (`research/52-hosting` branch).
-- **Drift-marker**: конкретные \$/month значения могут устареть на момент landing-коммита в #54; verify-все-числа-перед-PR documented as acceptance check на ticket #54.
+- **Drift-marker**: конкретные \$/month значения сверены с актуальной pricing-page **2026-11-04** (landing-коммит #54, `fly.toml`); результат сверки — в разделе «Размер инстанса и оценка стоимости». Значения могут снова устареть — повторная сверка при следующем изменении shape.
