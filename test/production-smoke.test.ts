@@ -25,6 +25,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { FastifyInstance } from "fastify";
 import { buildApp } from "../src/app.js";
+import { readTopLevelStringKey } from "./helpers/toml.js";
 
 const REPO_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 const SCRIPT_PATH = join(REPO_ROOT, "scripts", "production-smoke.sh");
@@ -65,14 +66,7 @@ function runSmoke(args: string[], env: NodeJS.ProcessEnv = {}): Promise<SmokeRun
 
 /** Top-level ключ `app` из `fly.toml` — имя Fly-приложения. */
 function readFlyApp(): string {
-  for (const rawLine of readFileSync(FLY_TOML_PATH, "utf8").split("\n")) {
-    const line = rawLine.trim();
-    if (line === "") continue;
-    if (line.startsWith("[")) break;
-    const match = /^app\s*=\s*"([^"]*)"/.exec(line);
-    if (match) return match[1];
-  }
-  return "";
+  return readTopLevelStringKey(readFileSync(FLY_TOML_PATH, "utf8"), "app") ?? "";
 }
 
 let app: FastifyInstance | null = null;

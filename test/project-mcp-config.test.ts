@@ -15,6 +15,8 @@ import { describe, it, expect } from "vitest";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { readmeSection } from "./helpers/readme.js";
+import { secretFieldHits } from "./helpers/secrets.js";
 
 const REPO_ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
 
@@ -113,57 +115,13 @@ describe("drift seam: .opencode/opencode.json — состав серверов"
 });
 
 /**
- * Паттерны «похожего на секрет». Список — из acceptance criteria тикета #63
- * (в репозитории не должно быть токенов/ключей/паролей) плюс типовые
- * префиксы GitHub-токенов.
+ * Паттерны «похожего на секрет» и сбор строк конфига живут в общем хелпере
+ * `test/helpers/secrets.ts` — тем же сканером пользуются drift-тесты
+ * production-документации.
  */
-const SECRET_PATTERNS: readonly RegExp[] = [
-  /token/i,
-  /password/i,
-  /secret/i,
-  /api[_-]?key/i,
-  /bearer/i,
-  /\bghp_/,
-  /\bgho_/,
-];
-
-/** Все ключи и строковые значения конфига вместе с путём до них. */
-function collectStrings(value: unknown, path = "$"): Array<{ path: string; text: string }> {
-  if (typeof value === "string") return [{ path, text: value }];
-  if (Array.isArray(value)) {
-    return value.flatMap((item, index) => collectStrings(item, `${path}[${index}]`));
-  }
-  if (value !== null && typeof value === "object") {
-    return Object.entries(value).flatMap(([key, item]) => [
-      { path: `${path}.${key}`, text: key },
-      ...collectStrings(item, `${path}.${key}`),
-    ]);
-  }
-  return [];
-}
-
-/** Подозрительные строки конфига: путь + текст, чтобы падение было читаемым. */
-function secretHits(value: unknown): string[] {
-  return collectStrings(value)
-    .filter(({ text }) => SECRET_PATTERNS.some((pattern) => pattern.test(text)))
-    .map(({ path, text }) => `${path} → ${text}`);
-}
-
-/**
- * Тело markdown-раздела README второго уровня — чтобы проверки читали именно
- * раздел «MCP», а не совпадение в соседнем тексте (например, в «Secrets»).
- */
-function readmeSection(readme: string, heading: string): string {
-  const start = readme.search(new RegExp(`^##\\s+${heading}\\s*$`, "m"));
-  if (start === -1) return "";
-  const rest = readme.slice(start);
-  const next = rest.slice(1).search(/^##\s+/m);
-  return next === -1 ? rest : rest.slice(0, next + 1);
-}
-
 describe("репозиторий не хранит значения секретов в MCP-конфиге", () => {
   it("в конфиге нет токенов, ключей, паролей и заголовков с кредом", () => {
-    expect(secretHits(config)).toEqual([]);
+    expect(secretFieldHits(config)).toEqual([]);
   });
 });
 

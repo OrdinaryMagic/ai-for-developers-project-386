@@ -12,10 +12,12 @@
  *
  * TOML-парсера в зависимостях нет (новые deps не добавляем), поэтому разбор
  * минимальный, построчный: секции + key/value. Этого хватает, потому что
- * формат `fly.toml` в этом репозитории фиксирован этим же тестом.
+ * формат `fly.toml` в этом репозитории фиксирован этим же тестом. Общий
+ * помощник разбора — в `test/helpers/toml.ts`.
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
+import { stripComment, unquote } from "./helpers/toml.js";
 
 const repoRoot = new URL("../", import.meta.url);
 
@@ -30,17 +32,6 @@ interface TomlTable {
 interface TomlDoc {
   root: TomlTable;
   tables: Record<string, TomlTable[]>;
-}
-
-/** Убирает `#`-комментарий, не задевая `#` внутри строковых значений. */
-function stripComment(line: string): string {
-  let inString = false;
-  for (let i = 0; i < line.length; i += 1) {
-    const ch = line[i];
-    if (ch === '"') inString = !inString;
-    if (ch === "#" && !inString) return line.slice(0, i);
-  }
-  return line;
 }
 
 /** Минимальный TOML-разбор: top-level ключи + секции (`[x]` и `[[x]]`). */
@@ -74,12 +65,6 @@ function parseToml(source: string): TomlDoc {
   }
 
   return { root, tables };
-}
-
-/** Значение без кавычек (`"3000"` → `3000`). */
-function unquoted(value: string | undefined): string {
-  if (value === undefined) return "";
-  return value.replace(/^"(.*)"$/, "$1").replace(/^'(.*)'$/, "$1");
 }
 
 /** Все значения конфига (top-level + секции) — для проверки «single region». */
@@ -128,7 +113,7 @@ describe("fly.toml — production deploy config (#54)", () => {
   it("собирает image из корневого Dockerfile", () => {
     const doc = parseToml(readRepoFile("fly.toml"));
 
-    expect(unquoted(doc.tables["build"]?.[0]?.dockerfile)).toBe("Dockerfile");
+    expect(unquote(doc.tables["build"]?.[0]?.dockerfile)).toBe("Dockerfile");
     // Dockerfile в корне — тот самый multi-stage image (cart #42).
     expect(readRepoFile("Dockerfile")).toContain('CMD ["node", "dist/server.js"]');
   });
@@ -138,11 +123,11 @@ describe("fly.toml — production deploy config (#54)", () => {
     const env = doc.tables["env"]?.[0] ?? {};
     const httpService = doc.tables["http_service"]?.[0] ?? {};
 
-    expect(unquoted(env.PORT)).toBe("3000");
-    expect(unquoted(env.HOST)).toBe("0.0.0.0");
-    expect(unquoted(env.NODE_ENV)).toBe("production");
+    expect(unquote(env.PORT)).toBe("3000");
+    expect(unquote(env.HOST)).toBe("0.0.0.0");
+    expect(unquote(env.NODE_ENV)).toBe("production");
     // Fly Proxy роутит трафик на internal_port — он обязан совпадать с PORT.
-    expect(Number(unquoted(httpService.internal_port))).toBe(3000);
+    expect(Number(unquote(httpService.internal_port))).toBe(3000);
     // Контракт Dockerfile: PORT=3000 внутри image (fallback для docker run).
     expect(readRepoFile("Dockerfile")).toMatch(/^ENV PORT=3000$/m);
   });
@@ -160,8 +145,8 @@ describe("fly.toml — production deploy config (#54)", () => {
     const checks = doc.tables["http_service.checks"] ?? [];
 
     expect(checks).toHaveLength(1);
-    expect(unquoted(checks[0].method)).toBe("GET");
-    expect(unquoted(checks[0].path)).toBe("/health");
+    expect(unquote(checks[0].method)).toBe("GET");
+    expect(unquote(checks[0].path)).toBe("/health");
     // Путь должен совпадать с реальным эндпоинтом API.
     expect(readRepoFile("src/routes/health.ts")).toContain('app.get("/health"');
   });
@@ -173,12 +158,12 @@ describe("fly.toml — production deploy config (#54)", () => {
     // AC #56: все HTTP-запросы к приложению редиректятся на HTTPS.
     // Ключ `force_https` в секции [http_service] — по docs.fly.io/reference/configuration
     // ("A Boolean which determines whether to enforce HTTP to HTTPS redirects").
-    expect(unquoted(httpService.force_https)).toBe("true");
+    expect(unquote(httpService.force_https)).toBe("true");
   });
 
   it("single primary region", () => {
     const doc = parseToml(readRepoFile("fly.toml"));
-    const primaryRegion = unquoted(doc.root.primary_region);
+    const primaryRegion = unquote(doc.root.primary_region);
 
     expect(primaryRegion).toBe("iad");
     // Multi-region вне scope (AC #54): других регионов в конфиге быть не должно.
@@ -186,7 +171,7 @@ describe("fly.toml — production deploy config (#54)", () => {
     // `"fra"` никогда не совпали бы с кодами регионов из FLY_REGION_CODES,
     // и проверка была бы всегда зелёной (вакуумный тест).
     const otherRegions = allValues(doc)
-      .map((value) => unquoted(value))
+      .map((value) => unquote(value))
       .filter((value) => FLY_REGION_CODES.includes(value) && value !== primaryRegion);
     expect(otherRegions).toEqual([]);
   });
@@ -195,10 +180,10 @@ describe("fly.toml — production deploy config (#54)", () => {
     const doc = parseToml(readRepoFile("fly.toml"));
     const httpService = doc.tables["http_service"]?.[0] ?? {};
 
-    expect(Number(unquoted(httpService.min_machines_running))).toBe(1);
+    expect(Number(unquote(httpService.min_machines_running))).toBe(1);
     // "off" = Fly Proxy никогда не останавливает машины по простою (нет scale-to-zero).
-    expect(unquoted(httpService.auto_stop_machines)).toBe("off");
-    expect(unquoted(httpService.auto_start_machines)).toBe("true");
+    expect(unquote(httpService.auto_stop_machines)).toBe("off");
+    expect(unquote(httpService.auto_start_machines)).toBe("true");
     // У Fly в fly.toml нет ключа max_machines_running — верхняя граница 1/1
     // выражается командой `fly scale count 1` (см. комментарий в fly.toml).
     expect(httpService.max_machines_running).toBeUndefined();
@@ -208,9 +193,9 @@ describe("fly.toml — production deploy config (#54)", () => {
   it("ресурсы: shared-cpu-1x и RAM ≤ 1GB", () => {
     const doc = parseToml(readRepoFile("fly.toml"));
     const vm = doc.tables["vm"]?.[0] ?? {};
-    const memoryMb = memoryToMb(unquoted(vm.memory));
+    const memoryMb = memoryToMb(unquote(vm.memory));
 
-    expect(unquoted(vm.size)).toBe("shared-cpu-1x");
+    expect(unquote(vm.size)).toBe("shared-cpu-1x");
     expect(memoryMb).toBeGreaterThan(0);
     expect(memoryMb).toBeLessThanOrEqual(1024);
   });
