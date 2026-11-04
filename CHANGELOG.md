@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.2.0](https://github.com/OrdinaryMagic/ai-for-developers-project-386/compare/v1.1.0...v1.2.0) (2026-11-04)
+
+
+### Features
+
+* **web:** ссылки на доступные страницы в шапке SPA ([#72](https://github.com/OrdinaryMagic/ai-for-developers-project-386/issues/72)) ([#73](https://github.com/OrdinaryMagic/ai-for-developers-project-386/issues/73)) ([743c520](https://github.com/OrdinaryMagic/ai-for-developers-project-386/commit/743c520a712c536ad9ec532399a235914416a0af))
+* **web:** страница «не найдено» для неизвестных маршрутов SPA ([#68](https://github.com/OrdinaryMagic/ai-for-developers-project-386/issues/68)) ([#70](https://github.com/OrdinaryMagic/ai-for-developers-project-386/issues/70)) ([2f2d01f](https://github.com/OrdinaryMagic/ai-for-developers-project-386/commit/2f2d01feb63bd8bc3355dd7ce7f612dbe9089f44))
+
+
+### Bug Fixes
+
+* **bookings:** слоты, которые уже начались, не бронируются ([#74](https://github.com/OrdinaryMagic/ai-for-developers-project-386/issues/74)) ([3898485](https://github.com/OrdinaryMagic/ai-for-developers-project-386/commit/389848521d13162cc4f6f696e51b383c54f08d1d))
+
 ## [1.1.0](https://github.com/OrdinaryMagic/ai-for-developers-project-386/compare/v1.0.0...v1.1.0) (2026-11-03)
 
 
