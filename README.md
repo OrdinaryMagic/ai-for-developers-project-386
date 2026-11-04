@@ -274,49 +274,62 @@ opencode mcp list
 
 ## Production deploy
 
-Публичный URL приложения: **https://booking-api.fly.dev**
+Публичный URL приложения: **https://booking-api-production-b3a4.up.railway.app**
 
-Имя Fly-приложения — ключ `app` в [`fly.toml`](fly.toml). Fly.io выдаёт адрес
-`https://<app>.fly.dev` автоматически, даже без custom domain, поэтому URL
-выше — не ручная копия, а производная от `app`: правка `app` в `fly.toml`
-меняет и канонический URL, и он не расходится с фактическим деплоем. Расхождение
-записей ловит drift-тест [`test/production-url.test.ts`](test/production-url.test.ts).
+Платформенный домен (`*.up.railway.app`) генерирует сама Railway, и в
+IaC-конфиг он **не** попадает: конфиг описывает сервис, а адрес выдаёт
+платформа. Поэтому единственный источник канонического адреса в репозитории —
+манифест окружения [`.railway/production.json`](.railway/production.json), поле
+`publicUrl`. URL выше — не ручная копия, а производная от `publicUrl`: правка
+манифеста меняет и канонический URL, и он не расходится с фактическим
+деплоем. Расхождение записей ловит drift-тест
+[`test/production-url.test.ts`](test/production-url.test.ts).
+
+Конфиг production-размещения — [`.railway/railway.ts`](.railway/railway.ts)
+(Railway Infrastructure as Code; решение о платформе —
+[ADR-0005](docs/adr/0005-hosting-platform-railway.md)). Он описывает build из
+корневого `Dockerfile`, health-check `GET /health`, always-on режим
+(`sleepApplication: false`), лимиты 0.5 vCPU / 500 MB и ровно одну реплику в
+регионе `us-east4-eqdc4a`.
 
 ### Последовательность деплоя
 
-1. `fly apps create booking-api` — имя глобально уникально на fly.io.
-2. `fly secrets set OWNER_NAME=… …` — секреты живут вне репозитория, runbook:
-   [Secrets](docs/agents/production-secrets.md).
-3. `fly deploy` — build из корневого `Dockerfile`, конфиг — `fly.toml`.
-4. `fly scale count 1 --max-per-region 1` — верхняя граница инстансов: ровно
-   одна машина. Границу задаёт runtime-команда: в схеме `fly.toml` у Fly нет
-   ключа `max_machines_running`, поэтому в конфиге зафиксирован только минимум
-   (`min_machines_running = 1`).
-   **Не масштабируйте больше одной машины:** state живёт в памяти процесса, а
-   записи сериализуются одним in-process мьютексом — второй инстанс ломает
-   single-writer-контракт и рассинхронизирует данные
-   ([ADR-0001](docs/adr/0001-in-memory-store-with-restart-reset.md),
-   [ADR-0002](docs/adr/0002-single-writer-in-memory-store.md)).
-5. `scripts/production-smoke.sh https://booking-api.fly.dev` — post-deploy
-   smoke (тикет #57): скрипт выводит тот же канонический URL из `fly.toml`.
+1. `railway login` — авторизация в Railway (OAuth, браузер).
+2. `railway link` — привязка каталога к проекту `booking-api` и окружению
+   `production`.
+3. `railway config plan` — dry-run: какие изменения конфиг внесёт в окружение.
+4. `railway config apply` — применение конфига: Railway пересобирает образ из
+   `Dockerfile` и перезапускает сервис.
+5. `railway variable set KEY=value` — секреты живут вне репозитория, runbook:
+   [Secrets](docs/agents/production-secrets.md). Для повторного деплоя текущего
+   коммита — `railway redeploy`.
+6. `scripts/production-smoke.sh` — post-deploy smoke (тикет #57): скрипт берёт
+   тот же канонический URL из `.railway/production.json`.
+
+**Не масштабируйте больше одной реплики:** state живёт в памяти процесса, а
+записи сериализуются одним in-process мьютексом — вторая реплика ломает
+single-writer-контракт и рассинхронизирует данные
+([ADR-0001](docs/adr/0001-in-memory-store-with-restart-reset.md),
+[ADR-0002](docs/adr/0002-single-writer-in-memory-store.md)).
 
 DNS-записи, custom domain и TLS-сертификат — runbook
 [docs/agents/production-dns-tls.md](docs/agents/production-dns-tls.md) (тикет #56).
 
 ### Post-deploy smoke
 
-Шаг 5 последовательности деплоя — smoke-проверка живого инстанса
+Шаг 6 последовательности деплоя — smoke-проверка живого инстанса
 (скрипт [`scripts/production-smoke.sh`](scripts/production-smoke.sh), тикет #57):
 
 ```bash
-scripts/production-smoke.sh                              # default URL — из fly.toml
-scripts/production-smoke.sh https://booking-api.fly.dev   # явный URL
+scripts/production-smoke.sh                              # default URL — из .railway/production.json
+scripts/production-smoke.sh https://booking-api-production-b3a4.up.railway.app   # явный URL
 ```
 
-Без аргумента скрипт берёт base URL из ключа `app` в [`fly.toml`](fly.toml)
-(`https://<app>.fly.dev`): канонический адрес не зашит в скрипт, поэтому
-переименование приложения не оставляет скрипт со старым URL. Явный аргумент
-(`http://…` или `https://…`) пригодится для проверки против локальной копии.
+Без аргумента скрипт берёт base URL из поля `publicUrl` манифеста окружения
+[`.railway/production.json`](.railway/production.json): канонический адрес не
+зашит в скрипт, поэтому пересоздание окружения не оставляет скрипт со старым
+URL. Явный аргумент (`http://…` или `https://…`) пригодится для проверки
+против локальной копии.
 
 Что проверяется:
 
@@ -337,8 +350,8 @@ scripts/production-smoke.sh https://booking-api.fly.dev   # явный URL
 Требования к окружению: `bash`, `curl` и `node` — `node` валидирует JSON
 (`jq` может отсутствовать). Ставить ничего не нужно.
 
-Retry-loop как safety net: при rolling-деплое Fly Proxy коротко отдаёт 502,
-пока машина перезапускается, поэтому каждая проверка повторяется до
+Retry-loop как safety net: при деплое edge Railway коротко отдаёт 502, пока
+старая реплика вытесняется новой, поэтому каждая проверка повторяется до
 `SMOKE_RETRIES` раз (по умолчанию 5) с паузой `SMOKE_RETRY_DELAY` секунд
 (по умолчанию 3); номер попытки печатается в лог. Скорость повторов
 настраивается переменными окружения:
@@ -347,12 +360,13 @@ Retry-loop как safety net: при rolling-деплое Fly Proxy коротк
 SMOKE_RETRIES=10 SMOKE_RETRY_DELAY=5 scripts/production-smoke.sh
 ```
 
-### Если имя `booking-api` на fly.io занято
+### Если нужно переименовать проект
 
-Имя Fly-приложения глобально-уникально: если `booking-api` уже занят, владелец
-релиза правит ключ `app` в [`fly.toml`](fly.toml) и обновляет URL в этом же
-разделе — одна правка, один PR. До синхронизации записей drift-тест падает:
-адрес в репозитории и фактический деплой разойдутся.
+Имя проекта на Railway не глобально-уникально, но оно входит в платформенный
+домен: при переименовании адрес меняется. Владелец релиза правит
+[`.railway/production.json`](.railway/production.json) (`publicUrl`) и адрес в
+этом же разделе — одна правка, один PR. До синхронизации записей drift-тест
+падает: адрес в репозитории и фактический деплой разойдутся.
 
 ## DNS / TLS
 
