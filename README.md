@@ -76,13 +76,12 @@ make check     # typecheck + lint + format:check + тесты
 
 ### hk (git-хуки и проверки)
 
-Конфигурация — `hk.pkl` (шаги: oxfmt, oxlint, tsc, mise fmt).
+Конфигурация — `hk.pkl` (шаги: gitleaks, oxfmt, oxlint, tsc, mise fmt).
 
-- **pre-commit**: фиксация и стейдж отформатированных staged-файлов (stash незастейженных правок включён).
-- **commit-msg**: проверка Conventional Commits (`hk util check-conventional-commit`); действует только когда в коммите есть файлы из `sdocs/`.
+- **pre-commit**: фиксация и стейдж отформатированных staged-файлов (stash незастейженных правок включён), плюс проверка staged-изменений через gitleaks.
+- **commit-msg**: проверка Conventional Commits (`hk util check-conventional-commit`) для каждого коммита.
 - Команды: `hk check` (проверка изменённых), `hk fix` (исправление), `hk check --all` (весь проект, для CI), `hk run <hook>`.
 - `make hooks` — установка хуков (выполняется и хуком mise `postinstall` автоматически). Обход хука разово: `HK=0 git commit ...`.
-- Монорепо: git-корень выше каталога проекта, поэтому в `/home/om/nanogitlab/hk.pkl` sdocs подключён как `subprojects` — хуки срабатывают от корня репозитория, шаги скоупятся на `sdocs/` и не затрагивают коммиты соседних проектов.
 
 ### Коммиты
 
@@ -198,7 +197,7 @@ manifests, supply-chain security, remote-vault — тоже out of scope).
 через [`gitleaks`](https://github.com/gitleaks/gitleaks) (тикет #44):
 pre-commit hook ловит утечку до `git push`, CI ловит то, что проскочило
 мимо локального хука. Конфиг — `.gitleaks.toml` в корне репозитория
-(allowlist для commit-SHA и test-fixtures, см. тикет #47).
+(path-allowlist для markdown-документов и test-фикстур, см. тикет #47).
 
 - **Локально**: pre-commit step в `hk.pkl` запускает
   `gitleaks protect --staged --redact=20 --verbose --no-banner` против
@@ -213,8 +212,10 @@ pre-commit hook ловит утечку до `git push`, CI ловит то, ч�
 
 **Smoke-чек end-to-end** (тикет #50): `./scripts/gitleaks-smoke.sh`.
 Создаёт фейковый AWS-docs ключ в временном файле, стейджит его,
-ожидает что gitleaks его детектит (exit ≠ 0), затем
-`git reset` всё чистит. Запускайте после правок `.gitleaks.toml`
+ожидает что gitleaks его детектит (exit code `1` — «leaks found» —
+и срабатывание правила `aws-access-token`; любой другой exit code
+означает поломку скана, а не пойманный секрет), затем `git reset`
+всё чистит. Запускайте после правок `.gitleaks.toml`
 или `hk.pkl`, чтобы убедиться что новый allowlist не закрыл
 настоящие утечки. Smoke-чек никуда не коммитит fake-secret — он
 работает только в staging area. Для проверки CI-слоя: push в любую
