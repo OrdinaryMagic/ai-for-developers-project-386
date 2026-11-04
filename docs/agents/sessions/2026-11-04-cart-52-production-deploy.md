@@ -62,10 +62,11 @@
 
 ## Trace
 
-- PR #61 — base `main`, head `chore/cart-52-production-deploy`; в теле PR `Closes #54 #55 #57 #62 #63`.
+- PR #61 — base `main`, head `chore/cart-52-production-deploy`; в теле PR `Closes #54 #55 #57 #62 #63`. **Смержен squash'ем: `268ef9a`** (`chore(deploy): production deployment для booking-api v1 — config, secrets, DNS/TLS, smoke (#52) (#61)`).
+- SHA в таблице «Что сделано» — **pre-squash**, коммиты интеграционной ветки `chore/cart-52-production-deploy` (ветка осталась на origin ⇒ SHA достижимы). Squash-коммит на `main` — `268ef9a`.
 - Коммиты интеграции линейные, merge-коммитов нет (`git log --merges` пуст). Листья переносились cherry-pick'ом с проверкой patch-id (#54 — `7772b24d`, #63 — `53e6e78a`; для #56/#57 сверено содержимое деревьев, т.к. README-патчи переносились с разрешёнными конфликтами).
-- Листья закрываются merge'ом PR: **#54, #55, #57, #62, #63**. Карта **#52** остаётся OPEN по конвенции wayfinder (карты не закрываются авто-merge'ом), **#56** — по факту живого provisioning.
-- CI на интеграционной ветке: `CI` (typecheck → lint → format → test → регенерация OpenAPI/SDK) и `hexlet-check` — success.
+- Листья закрыты merge'ом PR: **#54, #55, #57, #62, #63** (canonical-комментарий в каждом тикете). Карта **#52** остаётся OPEN по конвенции wayfinder (карты не закрываются авто-merge'ом), **#56** — по факту живого provisioning.
+- CI на интеграционной ветке и на `main` (`268ef9a`): `CI` (typecheck → lint → format → test → регенерация OpenAPI/SDK) и `hexlet-check` — success. `release-please` отработал без релиза: squash-коммит — `chore(deploy)`, релиз не триггерится (как и в cart #42, PR #60).
 - `make check` на финальном коммите: **251 тест / 18 файлов**, зелёные (было 165 / 13 на `origin/main`).
 
 ## Open follow-ups
