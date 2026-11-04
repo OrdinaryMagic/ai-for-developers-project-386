@@ -292,6 +292,50 @@ opencode mcp list
 DNS-записи, custom domain и TLS-сертификат — runbook
 [docs/agents/production-dns-tls.md](docs/agents/production-dns-tls.md) (тикет #56).
 
+### Post-deploy smoke
+
+Шаг 5 последовательности деплоя — smoke-проверка живого инстанса
+(скрипт [`scripts/production-smoke.sh`](scripts/production-smoke.sh), тикет #57):
+
+```bash
+scripts/production-smoke.sh                              # default URL — из fly.toml
+scripts/production-smoke.sh https://booking-api.fly.dev   # явный URL
+```
+
+Без аргумента скрипт берёт base URL из ключа `app` в [`fly.toml`](fly.toml)
+(`https://<app>.fly.dev`): канонический адрес не зашит в скрипт, поэтому
+переименование приложения не оставляет скрипт со старым URL. Явный аргумент
+(`http://…` или `https://…`) пригодится для проверки против локальной копии.
+
+Что проверяется:
+
+| Эндпоинт             | Ожидание                           |
+| -------------------- | ---------------------------------- |
+| `GET /`              | 200                                |
+| `GET /health`        | 200, тело содержит `"status":"ok"` |
+| `GET /config`        | 200, тело — валидный JSON          |
+| `GET /meeting-types` | 200, тело — валидный JSON-массив   |
+
+Пустой массив `[]` в `/meeting-types` — норма для свежего деплоя. Непустой
+массив — только WARNING (инстанс, на котором уже есть типы встречи, —
+норма), падением считаются не-массив, невалидный JSON и не-2xx.
+
+Коды возврата: `0` — все проверки прошли (`✅ PASS`), non-zero — есть
+провалившиеся проверки (`❌ FAIL` со списком упавших эндпоинтов).
+
+Требования к окружению: `bash`, `curl` и `node` — `node` валидирует JSON
+(`jq` может отсутствовать). Ставить ничего не нужно.
+
+Retry-loop как safety net: при rolling-деплое Fly Proxy коротко отдаёт 502,
+пока машина перезапускается, поэтому каждая проверка повторяется до
+`SMOKE_RETRIES` раз (по умолчанию 5) с паузой `SMOKE_RETRY_DELAY` секунд
+(по умолчанию 3); номер попытки печатается в лог. Скорость повторов
+настраивается переменными окружения:
+
+```bash
+SMOKE_RETRIES=10 SMOKE_RETRY_DELAY=5 scripts/production-smoke.sh
+```
+
 ### Если имя `booking-api` на fly.io занято
 
 Имя Fly-приложения глобально-уникально: если `booking-api` уже занят, владелец
