@@ -374,29 +374,24 @@ SMOKE_RETRIES=10 SMOKE_RETRY_DELAY=5 scripts/production-smoke.sh
 
 ## DNS / TLS
 
-Публичный домен и HTTPS-сертификат booking-api на Fly.io. Полный runbook для
-владельца релиза — [docs/agents/production-dns-tls.md](docs/agents/production-dns-tls.md)
+Публичный домен и HTTPS-сертификат booking-api на Railway.io. Полный runbook
+для владельца релиза — [docs/agents/production-dns-tls.md](docs/agents/production-dns-tls.md)
 (тикет #56).
 
 Коротко:
 
-1. **Имя приложения** — глобально-уникально; берётся из ключа `app` в
-   [`fly.toml`](fly.toml). Если имя занято — создать другое и **в том же PR**
-   поправить `app` (канонический URL — тикет #62).
-2. **DNS-запись** — для поддомена (`booking.example.com`) CNAME на
-   `<app>.fly.dev`; для apex (`example.com`) — A + AAAA на адреса приложения
-   (`fly ips list`). CNAME на apex невозможен; схемы CNAME и A/AAAA не
-   смешивают.
-3. **Сертификат** — `fly certs add booking.example.com`: Fly сам выпускает
-   managed Let's Encrypt-сертификат и сам его обновляет (внешний ACME-cron не
-   нужен).
-4. **HTTP→HTTPS redirect** — ключ `force_https = true` в `[http_service]`
-   [`fly.toml`](fly.toml) (вступает в силу после `fly deploy`).
-5. **Проверки** — `https://booking.example.com/` → 200, `/health` → 200
-   `{"status":"ok"}`, `/config` → 200 Configuration JSON.
+1. **Платформенный домен** — Railway выдаёт `*.up.railway.app` с managed TLS
+   автоматически: сертификат выпускает и обновляет сама платформа, внешний
+   ACME-cron не нужен. Фактический адрес окружения зафиксирован в
+   [`.railway/production.json`](.railway/production.json).
+2. **Custom domain** (вне scope v1) — CNAME на платформенный домен; Railway
+   сам выпускает и обновляет сертификат для custom domain. Делегировать
+   `example.com` владелец не может, поэтому в v1 развёрнут платформенный домен.
+3. **Проверки** — `https://…/` → 200, `/health` → 200 `{"status":"ok"}`,
+   `/config` → 200 Configuration JSON.
 
-Диагностика (pending-сертификат, несошедшийся DNS, CAA-записи, 502/health-check)
-и процедура отката — в runbook'е.
+Диагностика (pending-сертификат, несошедшийся DNS, 502/health-check) и
+процедура отката — в runbook'е.
 
 ## UI / E2E
 
