@@ -1,5 +1,25 @@
 # syntax=docker/dockerfile:1.7
 
+# --- Web builder stage: build the SPA (React + Vite) ---
+#
+# Фронтенд собирается в отдельной стадии: у него свой workspace, свой
+# lockfile и свой toolchain (см. AGENTS.md rule #10). В runtime-образ попадает
+# только готовый `web/dist` — он отдаётся тем же сервисом, что и API
+# (см. ADR-0006).
+FROM node:22-bookworm-slim AS web-builder
+WORKDIR /app/web
+
+COPY web/package.json web/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+
+COPY web/tsconfig.json web/tsconfig.node.json web/vite.config.ts web/index.html ./
+COPY web/postcss.config.js web/tailwind.config.js ./
+COPY web/src ./src
+# Тесты (`web/tests`) в контекст образа не попадают (см. `.dockerignore`),
+# поэтому `tsc -p tsconfig.json` проверяет только `src` — полный typecheck
+# фронтенда живёт в CI (`mise run check`).
+RUN npm run build
+
 # --- Builder stage: compile TypeScript to dist/ ---
 FROM node:22-bookworm-slim AS builder
 WORKDIR /app
@@ -30,6 +50,10 @@ RUN npm ci --omit=dev --no-audit --no-fund
 
 # Compiled output from the builder stage.
 COPY --from=builder /app/dist ./dist
+
+# Compiled SPA from the web builder stage. Путь `/app/web/dist` — тот, что
+# ищет `defaultStaticRoot()` (см. `src/static-ui.ts`).
+COPY --from=web-builder /app/web/dist ./web/dist
 
 # Run as the unprivileged `node` user (uid 1000) that ships with the base
 # image instead of root. The app only reads /app (no file writes at runtime —
