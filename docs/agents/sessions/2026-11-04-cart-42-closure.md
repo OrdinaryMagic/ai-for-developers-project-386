@@ -17,6 +17,8 @@
 
 Runtime-код приложения не менялся: implementation карты #42 была delivered и проверена; правки — Dockerfile (контейнер), скан-контур секретов и документация.
 
+SHA в таблице — **pre-squash** (коммиты ветки `chore/cart-42-closure`, удалённой после merge). Squash-коммит на `main` — `ffd9617`, см. «Trace».
+
 ## Аудит поставки против AC карты
 
 Цель аудита — проверить, что **листья закрыты, а AC реально выполнены**, а не просто «тикеты зелёные». Аудит шёл втроём: отдельный explore-субагент (статика по AC #42–#50), живой прогон образа в этой сессии и эмпирические проверки поведения gitleaks.
@@ -82,7 +84,8 @@ docker run -d --name booking-api-audit --env PORT=3999 -p 127.0.0.1:3999:3999 bo
 
 ## Trace
 
-- **PR #65** — base `main`, head `chore/cart-42-closure`, тело PR: `Closes #42`.
+- **PR #65** — base `main`, head `chore/cart-42-closure`, **смержен squash'ем: `ffd9617`** (`chore(cart-42): closure карты #42 — аудит поставки, отчёт #44 в main, исправление дыр (#42)`). В теле PR — `Refs #42`, **не** `Closes #42`: по конвенции wayfinder карта не закрывается auto-merge'ом (см. следующий пункт).
+- SHA в таблице «Что сделано» — **pre-squash**, коммиты ветки `chore/cart-42-closure` (ветка удалена на merge ⇒ SHA достижимы только через ref PR — `refs/pull/65/head`, GitHub их показывает). Squash-коммит на `main` — `ffd9617`.
 - **#44** — закрыт раньше в этой же сессии: комментарий-резолюция ([`issuecomment-6629640400`](https://github.com/OrdinaryMagic/ai-for-developers-project-386/issues/44#issuecomment-6629640400)) ⇒ `gh issue close 44`. Комментарий несёт trace «отчёт перенесён в `main` + рекомендации приняты в #47–#50/#59».
 - **#42** — закрыт вручную: комментарий-резолюция ⇒ `gh issue close 42`; тело обновлено (Decisions so-far дополнен, граф тикетов переведён в «delivered», Frontier — пусто, добавлен блок «Итог» со ссылкой на этот манифест).
 - Листья #43, #45, #46, #47, #48, #49, #50, #59 — CLOSED (авто-merge PR #60). **#44** — CLOSED (эта сессия). **#42** — CLOSED (эта сессия).
