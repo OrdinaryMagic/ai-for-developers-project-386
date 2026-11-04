@@ -11,7 +11,8 @@
 #   - health-check `GET /health` (эндпоинт есть в src/routes/health.ts);
 #   - single primary region `iad` (Ashburn) — multi-region вне scope;
 #   - min/max инстансов 1/1 — scale-to-zero вне scope по AC #54;
-#   - ресурсы shared-cpu-1x / 256MB RAM (≤ 1GB по AC).
+#   - ресурсы shared-cpu-1x / 256MB RAM (≤ 1GB по AC);
+#   - HTTP→HTTPS redirect (`force_https = true` в [http_service]) — тикет #56.
 #
 # Runbook (владелец релиза, cart #52):
 #   1) fly apps create booking-api        # имя должно быть уникальным на fly.io
@@ -19,9 +20,12 @@
 #   3) fly deploy                          # build из Dockerfile + запуск 1 машины
 #   4) fly scale count 1                   # верхняя граница: ровно 1 машина
 #   5) scripts/production-smoke.sh https://<host>   # post-deploy smoke, см. #57
+#   6) fly certs add <domain>             # домен + TLS-сертификат, см. #56
 #
 # Если имя "booking-api" на fly.io уже занято — создай приложение под другим
 # именем и поправь ключ `app` ниже (или деплой с флагом `fly deploy -a <name>`).
+# Имя приложения глобально-уникально; процедура выбора имени и выдачи
+# сертификата — в docs/agents/production-dns-tls.md (#56, канонический URL — #62).
 
 # Имя Fly App. Первое key/value в файле — по конвенции flyctl.
 app = "booking-api"
@@ -43,6 +47,14 @@ NODE_ENV = "production"
 [http_service]
 # Порт приложения внутри машины — совпадает с PORT из [env].
 internal_port = 3000
+# HTTP→HTTPS redirect (AC #56): Fly Proxy отвечает на http:// редиректом
+# (301/308) на https://. Ключ `force_https` в [http_service] — по
+# docs.fly.io/reference/configuration: "A Boolean which determines whether to
+# enforce HTTP to HTTPS redirects".
+#
+# Процедура выдачи сертификата, DNS-записи и проверки — в runbook'е
+# docs/agents/production-dns-tls.md (тикет #56).
+force_https = true
 # Машина поднимается сама, если её остановили.
 auto_start_machines = true
 # AC #54: scale-to-zero вне scope — Fly Proxy никогда не останавливает машину

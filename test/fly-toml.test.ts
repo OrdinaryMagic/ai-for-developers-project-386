@@ -6,6 +6,10 @@
  * `GET /health`, single primary region, min/max инстансов 1/1, RAM ≤ 1GB.
  * Плюс — что ADR-0004 ссылается на этот файл (второй AC тикета).
  *
+ * Тикет #56 добавляет сюда два кейса: HTTP→HTTPS redirect (`force_https` в
+ * `[http_service]`) и наличие runbook'а DNS/TLS со ссылками на смежные
+ * артефакты карты #52.
+ *
  * TOML-парсера в зависимостях нет (новые deps не добавляем), поэтому разбор
  * минимальный, построчный: секции + key/value. Этого хватает, потому что
  * формат `fly.toml` в этом репозитории фиксирован этим же тестом.
@@ -160,6 +164,16 @@ describe("fly.toml — production deploy config (#54)", () => {
     expect(str(checks[0].path)).toBe("/health");
     // Путь должен совпадать с реальным эндпоинтом API.
     expect(readRepoFile("src/routes/health.ts")).toContain('app.get("/health"');
+  });
+
+  it("HTTP→HTTPS redirect: force_https = true в [http_service]", () => {
+    const doc = parseToml(readRepoFile("fly.toml"));
+    const httpService = doc.tables["http_service"]?.[0] ?? {};
+
+    // AC #56: все HTTP-запросы к приложению редиректятся на HTTPS.
+    // Ключ `force_https` в секции [http_service] — по docs.fly.io/reference/configuration
+    // ("A Boolean which determines whether to enforce HTTP to HTTPS redirects").
+    expect(str(httpService.force_https)).toBe("true");
   });
 
   it("single primary region", () => {
