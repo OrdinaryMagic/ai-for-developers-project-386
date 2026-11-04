@@ -250,31 +250,31 @@ Production-конфигурация и секреты живут **вне реп
 
 Проектная конфигурация MCP для агента (OpenCode) лежит в
 [`.opencode/opencode.json`](.opencode/opencode.json). Серверы объявлены в
-каноническом V2-пути `mcp.servers`: `fly-mcp` (remote, Fly.io) и `shadcn`
-(local). Полный runbook — [docs/agents/production-mcp.md](docs/agents/production-mcp.md).
+каноническом V2-пути `mcp.servers`: `railway-mcp` (remote, Railway.io) и
+`shadcn` (local). Полный runbook — [docs/agents/production-mcp.md](docs/agents/production-mcp.md).
 
 ```bash
-# Подключить fly-mcp глобально (чтобы работало и в других проектах):
-opencode mcp add --global fly-mcp --url https://mcp.fly.io
+# Подключить railway-mcp глобально (чтобы работало и в других проектах):
+opencode mcp add --global railway-mcp --url https://mcp.railway.com
 
 # Залогиниться через OAuth (откроется браузер, выбрать организацию):
-opencode mcp auth fly-mcp
+opencode mcp auth railway-mcp
 
 # Проверить статус подключения:
 opencode mcp list
 ```
 
-- **Логин:** либо `opencode mcp auth fly-mcp`, либо в интерфейсе агента
-  `/mcps` → `fly-mcp` → sign in. В этом репозитории подключение уже
+- **Логин:** либо `opencode mcp auth railway-mcp`, либо в интерфейсе агента
+  `/mcps` → `railway-mcp` → sign in. В этом репозитории подключение уже
   объявлено, поэтому достаточно авторизоваться.
 - **Секреты:** OAuth-токены и любые секреты хранятся **вне репозитория** — в
   конфиге пользователя (`~/.config/opencode/opencode.jsonc`). В репозиторий
   попадают только публичные URL и команды; токенов в `.opencode/opencode.json`
   нет и быть не должно.
-- **Что даёт `fly-mcp`:** управление Fly Apps, Machines, volumes, app-secrets и
-  TLS-сертификатами (плюс Managed Postgres и Sprites). Например,
-  `list_app_secrets` показывает имена секретов и их digest'ы, но **не
-  значения**.
+- **Что даёт `railway-mcp`:** управление проектами, сервисами, деплоями,
+  переменными окружения, доменами и TLS-сертификатами Railway. Например,
+  `set-variables` выставляет переменные окружения, а `domain-status` показывает
+  статус сертификата — **значения** секретов при этом не показываются.
 
 ## Production deploy
 
