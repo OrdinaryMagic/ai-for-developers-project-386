@@ -27,6 +27,7 @@ const CONFIGURATION = {
   owner: { name: "Owner", timezone: "Europe/Moscow" },
   windowDays: 14,
   slotStepMinutes: 30,
+  workingDays: [1, 2, 3, 4, 5],
   workingHours: { start: "09:00", end: "18:00" },
 };
 
@@ -67,6 +68,15 @@ describe("owner read adapters", () => {
 
   it.each([
     ["an empty configuration payload", configResult(200, {})],
+    [
+      "configuration without workingDays",
+      configResult(200, {
+        owner: { name: "Owner", timezone: "Europe/Moscow" },
+        windowDays: 14,
+        slotStepMinutes: 30,
+        workingHours: { start: "09:00", end: "18:00" },
+      }),
+    ],
     [
       "a DomainError instead of configuration",
       configResult(200, { statusCode: 404, code: "MEETING_TYPE_NOT_FOUND", message: "missing" }),

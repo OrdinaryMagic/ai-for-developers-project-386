@@ -229,6 +229,7 @@ components:
         - owner
         - windowDays
         - slotStepMinutes
+        - workingDays
         - workingHours
       properties:
         owner:
@@ -243,11 +244,18 @@ components:
           type: integer
           format: int32
           description: 'Шаг между соседними возможными стартами слотов в минутах (v1: 30).'
+        workingDays:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkingDay'
+          minItems: 1
+          maxItems: 7
+          description: 'Рабочие дни владельца: уникальные ISO-дни недели 1–7, по умолчанию 1,2,3,4,5.'
         workingHours:
           allOf:
             - $ref: '#/components/schemas/WorkingHours'
           description: Рабочие часы владельца в его TZ.
-      description: 'Конфигурация владельца и его правил: TZ, рабочие часы, шаг слотов, длина окна бронирования.'
+      description: 'Конфигурация владельца и его правил: TZ, рабочие дни и часы, шаг слотов, длина окна бронирования.'
     CreateBookingRequest:
       type: object
       required:
@@ -363,6 +371,12 @@ components:
           type: string
           description: IANA TZ владельца (например, `Europe/Moscow`).
       description: Владелец календаря.
+    WorkingDay:
+      type: integer
+      format: int32
+      minimum: 1
+      maximum: 7
+      description: 'ISO-день недели: 1 — понедельник, 7 — воскресенье.'
     WorkingHours:
       type: object
       required:

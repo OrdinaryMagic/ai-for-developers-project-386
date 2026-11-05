@@ -168,6 +168,13 @@ function assertArrayItemsMatch(
     expect(items.type).toBe("string");
     return;
   }
+  if (manifest.kind === "integer") {
+    const resolved = items.$ref === undefined ? items : unwrapRef(items, root);
+    expect(resolved.type).toBe("integer");
+    expect(resolved.minimum).toBe(manifest.minimum);
+    expect(resolved.maximum).toBe(manifest.maximum);
+    return;
+  }
   const unwrapped = unwrapRef(items, root);
   expect(unwrapped).toBe(root.components.schemas[manifest.ref]);
 }

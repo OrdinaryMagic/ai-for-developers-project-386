@@ -44,7 +44,7 @@ export class BookingStore {
    * 1. `meetingTypeId` существует;
    * 2. `startsAt` корректный ISO и попадает в текущее окно;
    * 2a. `startsAt` — в будущем (слот, который уже начался, не бронируется);
-   * 3. `[startsAt, startsAt + meetingType.duration)` лежит в рабочих часах;
+   * 3. день входит в `workingDays`, а `[startsAt, startsAt + duration)` — в рабочие часы;
    * 4. `startsAt` выровнен по `slotStepMinutes`;
    * 5. нет уже сделанной записи, пересекающейся по интервалу (в том числе
    *    у другого `meetingTypeId`).
@@ -102,7 +102,12 @@ export class BookingStore {
       };
     }
 
-    // (3) Рабочие часы.
+    // (3) Рабочий день определяется только после перевода timestamp в TZ владельца.
+    if (!this.config.workingDays.includes(startDt.setZone(tz).weekday)) {
+      return { ok: false, error: makeDomainError("OUTSIDE_WORKING_HOURS") };
+    }
+
+    //     Рабочие часы ограничивают интервал внутри рабочего дня.
     const wh: WorkingHours = {
       startMin: parseHHMM(this.config.workingHours.start),
       endMin: parseHHMM(this.config.workingHours.end),
@@ -195,6 +200,12 @@ export class BookingStore {
     }
 
     const days: AvailabilityDay[] = dayStarts.map((dayBase) => {
+      const date = dayBase.toISODate()!;
+      // Window остаётся календарным: нерабочий день не удаляется из ответа.
+      if (!this.config.workingDays.includes(dayBase.weekday)) {
+        return { date, slots: [] };
+      }
+
       const slots: string[] = [];
       const hourStart = Math.floor(wh.startMin / 60);
       const minuteStart = wh.startMin % 60;
@@ -220,7 +231,7 @@ export class BookingStore {
         }
         cur = cur.plus({ minutes: this.config.slotStepMinutes });
       }
-      return { date: dayBase.toISODate()!, slots };
+      return { date, slots };
     });
 
     return {

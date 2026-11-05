@@ -21,6 +21,12 @@ function isBooking(value: unknown): value is Booking {
 function isConfiguration(value: unknown): value is Configuration {
   if (typeof value !== "object" || value === null) return false;
   const candidate = value as Record<string, unknown>;
+  if (
+    !Array.isArray(candidate.workingDays) ||
+    !candidate.workingDays.every((day) => typeof day === "number")
+  ) {
+    return false;
+  }
   if (typeof candidate.owner !== "object" || candidate.owner === null) return false;
   if (typeof candidate.workingHours !== "object" || candidate.workingHours === null) return false;
   const owner = candidate.owner as Record<string, unknown>;
