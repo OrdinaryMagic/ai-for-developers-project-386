@@ -1,7 +1,7 @@
 .PHONY: install dev start test lint format check daemon daemon-stop logs hooks clean
 
 install:
-	mise install && npm install
+	mise install && npm install && npm --prefix web install
 
 dev:
 	mise run dev

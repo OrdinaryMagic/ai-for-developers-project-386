@@ -1,4 +1,5 @@
-import { test, expect, request as pwRequest } from "@playwright/test";
+import { test, expect } from "@playwright/test";
+import { seedMeetingType } from "./seed-meeting-type";
 
 /**
  * C1 / Wave C — карта #26: сквозной happy-path сценарий гостя
@@ -14,18 +15,15 @@ import { test, expect, request as pwRequest } from "@playwright/test";
  * Стратегия времени: сервер использует «реальные часы» (`DateTime.now()` в TZ
  * владельца). Под Vite proxy `/api/*` цепляется к e2e-бэкенду (порт E2E_API_PORT
  * = 3030 по умолчанию), который стартует свежим в `playwright.config.ts`
- * через `webServer` — состояние in-memory пустое при заходе теста, поэтому
- * один тип встречи seed'ится через прямой POST в бэкенд (ничего не мокается:
- * это тот же HTTP-эндпоинт, который дёргает UI). Параметры совпадают с
- * дефолтами `OwnerConfig`: `slotStepMinutes=30`, `windowDays=14`,
- * `workingHours=09:00–18:00 Europe/Moscow`.
+ * через `webServer`. Каждый spec seed'ит свой MeetingType через прямой POST
+ * и выбирает его по ID (ничего не мокается: это тот же HTTP-эндпоинт, который
+ * дёргает UI), поэтому порядок specs и retries не зависят от пустого store.
+ * Параметры совпадают с дефолтами `OwnerConfig`: `slotStepMinutes=30`,
+ * `windowDays=14`, `workingHours=09:00–18:00 Europe/Moscow`.
  *
  * Тест не использует `page.route`, `routeFromHAR` или любые подмены трафика —
  * ровно как требует acceptance-критерий тикета.
  */
-
-const API_PORT = Number(process.env.E2E_API_PORT ?? 3030);
-const API_BASE = `http://127.0.0.1:${API_PORT}`;
 
 // Жизнь спека короткая: завести тип встречи, открыть `/`, пройти форму,
 // увидеть UUID. `timeout` спека удерживаем 60с — Vite на холодном старте
@@ -38,28 +36,24 @@ test("guest happy path: select meeting type, pick slot, submit, see success UUID
   // Seed: создать один тип встречи напрямую в бэкенд. Браузер тут не
   // нужен — это эквивалент того, что owner сделал бы через `/admin/event-types`,
   // просто без раскрытия всех testid'ов owner-формы в публичном e2e.
-  const api = await pwRequest.newContext({ baseURL: API_BASE });
-  const create = await api.post("/meeting-types", {
-    data: {
-      name: "Тестовая консультация",
-      description: "Автотестовый слот для happy-path.",
-      durationMinutes: 30,
-    },
+  const meetingTypeId = await seedMeetingType({
+    name: "Тестовая консультация",
+    description: "Автотестовый слот для happy-path.",
+    durationMinutes: 30,
   });
-  expect(create.status(), "seed POST /api/meeting-types").toBe(200);
 
   await page.goto("/");
   await expect(page.getByTestId("home-page")).toBeVisible();
 
-  // На главной ждём появления хотя бы одной карточки типа встречи.
-  // Если `home-empty` остаётся — seed'а не было.
+  // На главной ждём карточку именно созданного MeetingType, а не первую
+  // по порядку: в store уже могут быть seed'ы другого spec или retry.
   await expect(page.getByTestId("meeting-types-list")).toBeVisible({ timeout: 10_000 });
-  const card = page.getByTestId(/^meeting-type-card-/).first();
+  const card = page.getByTestId(`meeting-type-card-${meetingTypeId}`);
   await expect(card).toBeVisible();
   await card.click();
 
-  // После клика должны попасть на /book/:id с сеткой слотов.
-  await expect(page).toHaveURL(/\/book\//);
+  // После клика должны попасть на страницу именно seed MeetingType.
+  await expect(page).toHaveURL(`/book/${meetingTypeId}`);
   await expect(page.getByTestId("book-page")).toBeVisible();
   await expect(page.getByTestId("book-grid")).toBeVisible({ timeout: 10_000 });
 

@@ -77,11 +77,19 @@
 ### Запуск
 
 ```bash
-make install   # инструменты mise + npm-зависимости
-make dev       # dev-сервер API (tsx watch) на http://127.0.0.1:3000
-make start     # сборка tsc + прод-запуск node dist/server.js
-make check     # typecheck + lint + format:check + тесты
+make install                # инструменты mise + root/web npm-зависимости
+npm run test:e2e:install    # Chromium + системные зависимости, один раз
+make dev                    # dev-сервер API (tsx watch) на http://127.0.0.1:3000
+make start                  # сборка tsc + прод-запуск node dist/server.js
+make check                  # полный project gate, включая web build и Playwright
 ```
+
+`web/` — отдельный npm-пакет со своим `package-lock.json`, а не npm workspace:
+поэтому чистый checkout требует установки обоих наборов зависимостей (это делает
+`make install`). Для Playwright нужен Chromium; `npm run test:e2e:install`
+выполняет `playwright install --with-deps chromium` и на Linux может запросить
+`sudo` для установки системных библиотек. После этих двух установочных команд
+`make check` воспроизводит полный CI-gate локально.
 
 Эндпоинты каркаса: `GET /` → `{"hello":"world"}`, `GET /health` → `{"status":"ok"}`.
 
@@ -89,7 +97,7 @@ make check     # typecheck + lint + format:check + тесты
 
 - Инструменты и окружение — `mise.toml`: Node 22, `PORT=3000`, `HOST=127.0.0.1`.
 - Таски: `mise run dev|start|build|test|lint|format|typecheck|check`.
-  - **`mise run check`** — единая команда для всех проверок (typecheck → lint → format:check → test), выполняет их последовательно с fail-fast. Используется локально (`make check`) и в CI.
+  - **`mise run check`** — единая команда полного project gate: backend typecheck → web typecheck → repo-wide lint → repo-wide format:check → backend unit-тесты → web unit-тесты → production-сборка web → Playwright e2e. Все шаги выполняются последовательно с fail-fast. Используется локально (`make check`) и в CI; отдельный более широкий CI-набор не поддерживается.
 - Хуки (события окружения): `postinstall` → `npm install` после установки инструментов mise; `watch_files` на `package.json` → `npm install` при изменении в активированном шелле.
 - Демоны (фоновые процессы разработки): фоновый dev-сервер API — `make daemon` / `make daemon-stop` (`mise daemons start api`, `ready_port = 3000`; требуется pitchfork: `mise use -g pitchfork`).
 
@@ -108,7 +116,7 @@ Conventional Commits — формат `type(scope): subject` (feat, fix, chore, 
 
 ### CI
 
-Workflow `.github/workflows/ci.yml` запускается на каждый push (любая ветка и тег). Использует `jdx/mise-action@v5` для установки инструментов из `mise.toml` (Node 22, hk и т.д.) с кэшем, выполняет postinstall-хук mise (`npm install` + `hk install`) и запускает `mise run check`. Стандартный Hexlet-чекер лежит отдельно в `hexlet-check.yml` и его трогать не нужно.
+Workflow `.github/workflows/ci.yml` запускается на каждый push (любая ветка и тег). Job `check` использует `jdx/mise-action@v5` для установки инструментов из `mise.toml` (Node 22, hk и т.д.), отдельно выполняет `npm ci` для root и `web/`, восстанавливает кэш `~/.cache/ms-playwright` и устанавливает Chromium через `npm run test:e2e:install`. После проверок свежести OpenAPI/SDK та же canonical-задача `mise run check` прогоняет весь gate, включая Playwright; отдельного e2e-job нет. При падении `playwright-report/` и `test-results/` загружаются как артефакты. Docker smoke-job имеет `needs: check`, поэтому стартует только после полного gate с браузерными сценариями. Стандартный Hexlet-чекер лежит отдельно в `hexlet-check.yml` и его трогать не нужно.
 
 ### Релизы
 
@@ -497,8 +505,9 @@ Fastify-стек. Этот раздел собирает команды и пр�
 - `npm run dev:web` — Vite dev-сервер на `127.0.0.1:5173`. Ожидается запущенный backend на `127.0.0.1:3000` (`make dev`); Vite проксирует `/api/*` на backend, так что из браузера все запросы идут на тот же origin и CORS не нужен.
 - `npm run build:web` — Vite-сборка; результат — статические ассеты в `web/dist/`.
 - `npm run gen:sdk` — регенерировать `web/src/api/sdk.ts` из `openapi.yaml` (генератор `openapi-typescript@7.13.0`, тикет #29). Прогон обязателен после любой правки `spec/*.tsp` и после изменения `openapi.yaml` релизом — см. AGENTS.md rule #9.
-- `npm run test:e2e` — Playwright end-to-end против реального Fastify-сервера (Wave C, тикет #34). Сам поднимает backend через `playwright.config.ts::webServer` (Fastify на `E2E_API_PORT`, по умолчанию 3030) и Vite dev-сервер на 5173; внешний `make start` не требуется ни локально, ни в CI.
-- `npm run test:e2e:install` — `npx playwright install --with-deps chromium`, разовая установка браузера для e2e.
+- `npm run test:e2e` — Playwright end-to-end против реального Fastify-сервера (Wave C, тикет #34). Сам поднимает backend через `playwright.config.ts::webServer` (Fastify на `E2E_API_PORT`, по умолчанию 3030) и Vite dev-сервер на 5173; внешний `make start` не требуется ни локально, ни в CI. По умолчанию уже запущенные серверы **не переиспользуются**: занятый порт является ошибкой, а не разрешением подключиться к чужому процессу. Этот strict-режим входит в `make check`.
+- `npm run test:e2e:reuse` — явный ручной быстрый режим, который разрешает reuse уже запущенных backend/Vite на тех же портах. В canonical `make check` он не используется.
+- `npm run test:e2e:install` — `playwright install --with-deps chromium`, разовая установка браузера и системных зависимостей для e2e.
 
 ### Где живёт фронтенд в production
 
@@ -517,7 +526,7 @@ Fastify-стек. Этот раздел собирает команды и пр�
 
 - **Wave A — каркас + SDK** (тикеты #28, #29): создать `web/`, привязать к корню репозитория, сгенерировать SDK. Никакого runtime-кода здесь ещё нет.
 - **Wave B — UI** (тикеты #30–#33): shadcn/ui + Vite, страницы владельца и гостя, прокси `/api/*` на backend.
-- **Wave C — e2e + CI** (тикеты #34–#35): `npm run test:e2e` против реального Fastify: `playwright.config.ts::webServer` сам стартует Fastify (порт `E2E_API_PORT`, default 3030) и Vite dev (5173), без ручного `make start`. Отдельный CI-джоб в `.github/workflows/ci.yml` (caches `~/.cache/ms-playwright`, upload `playwright-report/` на failure).
+- **Wave C — e2e + CI** (тикеты #34–#35, unified gate — #76): `npm run test:e2e` против реального Fastify: `playwright.config.ts::webServer` сам стартует Fastify (порт `E2E_API_PORT`, default 3030) и Vite dev (5173), без ручного `make start`. Тот же e2e-шаг входит в `mise run check`; CI check-job сохраняет cache `~/.cache/ms-playwright` и upload `playwright-report/`/`test-results/` на failure, отдельного e2e-job больше нет.
 - **Wave D — гигиена** (тикет #27 и соседи): правила и документация, фиксирующие рамки перед Wave A/B/C. AGENTS.md rule #10 и rule #11, плюс этот раздел — артефакты Wave D.
 
 Корень карты — тикет #26.
@@ -526,7 +535,7 @@ Fastify-стек. Этот раздел собирает команды и пр�
 
 Корневой `AGENTS.md` распространяется на весь репозиторий; ниже — правила, которые легко пропустить фронтенд-инженеру, потому что они сформулированы в backend-терминах. Полный реестр — в `AGENTS.md`.
 
-- **Rule #1** — `make check` остаётся единой командой проверки всего репозитория. В неё входят и backend-таски (typecheck/lint/format:check/test), и frontend-таски; правка только `web/` не снимает ответственности за проход backend-шагов.
+- **Rule #1** — `make check` остаётся единой командой проверки всего репозитория: backend/web typecheck, repo-wide lint/format:check, backend/web unit-тесты, production-сборка web и Playwright e2e. Правка только `web/` не снимает ответственности за проход backend-шагов, а правка backend не снимает frontend/e2e-шаги.
 - **Rule #2** — Conventional Commits (`type(scope): subject`). Для frontend в `scope` обычно указывается `web` (допустимы также `web(api)`, `web(ui)`, `web(e2e)`). Полный список типов и обход хука (`HK=0 git commit ...`) — в rule #2.
 - **Rule #5** — backend-правило «импорты в `src/` с `.js`-расширением» обусловлено `NodeNext` + ESM (см. полный текст). В `web/` работает bundler resolution Vite: относительные импорты без расширения (`import x from "./foo"`) Vite резолвит в `./foo.ts`/`.tsx` сам, поэтому дописывать `.js` для `web/src/**` не требуется и некорректно — это TypeScript-код, расширения должны быть `.ts`/`.tsx`.
 - **Rule #8** — subject коммита оканчивается `(#NN)`, если коммит реализует конкретный тикет. Исключение для chore/docs без тикета действует и в `web/` (см. полный текст).
