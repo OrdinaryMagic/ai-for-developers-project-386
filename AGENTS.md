@@ -4,7 +4,7 @@
 
 ## Правила
 
-1. **Все проверки одной командой — `make check`** (= `mise run check`): typecheck → lint → format:check → test, fail-fast. CI гоняет это на каждый push (`.github/workflows/ci.yml`). Не подменять отдельными npm-скриптами.
+1. **Все проверки одной командой — `make check`** (= `mise run check`): backend typecheck → web typecheck → repo-wide lint → repo-wide format:check → backend unit-тесты → web unit-тесты → production-сборка web → Playwright e2e. Шаги выполняются последовательно с fail-fast; e2e поднимает собственные backend/Vite-серверы без reuse. CI гоняет ту же canonical-задачу на каждый push (`.github/workflows/ci.yml`). Не подменять отдельными npm-скриптами.
 2. **Формат коммитов — Conventional Commits.** Допустимые типы (по `@commitlint/config-conventional`): `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`. Шаблон: `type(scope): subject`. Хук `commit-msg` (commitlint, `commitlint.config.js`) блокирует коммит при нарушении. Пропустить разово: `HK=0 git commit ...`.
 3. **Не править `.github/workflows/hexlet-check.yml`** — это Hexlet-платформа; баннер в файле запрещает. Свой CI в `.github/workflows/ci.yml`.
 4. **`tsc` не проверяет тесты.** `tsconfig.json` исключает `test/`; типы тестов — зона ответственности vitest.
@@ -24,7 +24,7 @@
 
 ## Команды
 
-- `make install` — установка инструментов и зависимостей (mise postinstall-хук сам прогоняет `npm install` + `hk install`).
+- `make install` — установка инструментов и root/web npm-зависимостей (mise postinstall-хук также прогоняет root `npm install` + `hk install`). Перед первым `make check` установить Chromium и его системные зависимости: `npm run test:e2e:install` (на Linux может запросить sudo).
 - `make dev` — watch-сервер на `127.0.0.1:3000`. `make start` — прод (`build` → `node dist/server.js`).
 - Отдельная проверка: `mise run typecheck|lint|format|test`. Watch тестов: `npm run test:watch`. Один тест-файл: `npx vitest run test/path/file.test.ts`.
 - По всему репо как CI: `hk check --all` / `hk fix --all`. Очистка: `make clean`.

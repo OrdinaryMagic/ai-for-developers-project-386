@@ -1,4 +1,5 @@
-import { test, expect, request as pwRequest } from "@playwright/test";
+import { test, expect } from "@playwright/test";
+import { seedMeetingType } from "./seed-meeting-type";
 
 /**
  * C1 / Wave C — карта #26: конфликт слотов (тикет #34).
@@ -31,19 +32,12 @@ test("guest conflict: two browser contexts POST the same slot; second sees SLOT_
 }) => {
   test.setTimeout(90_000);
 
-  // Seed: один тип встречи, как в happy-path.
-  const API_PORT = Number(process.env.E2E_API_PORT ?? 3030);
-  const api = await pwRequest.newContext({
-    baseURL: `http://127.0.0.1:${API_PORT}`,
+  // Seed: сценарий выбирает только созданный здесь MeetingType по его ID.
+  const meetingTypeId = await seedMeetingType({
+    name: "Конфликтная консультация",
+    description: "Слот для проверки SLOT_TAKEN.",
+    durationMinutes: 30,
   });
-  const create = await api.post("/meeting-types", {
-    data: {
-      name: "Конфликтная консультация",
-      description: "Слот для проверки SLOT_TAKEN.",
-      durationMinutes: 30,
-    },
-  });
-  expect(create.status(), "seed POST /api/meeting-types").toBe(200);
 
   // Два независимых контекста = две независимые cookie-jar для гипотетической
   // auth в будущем; auth в v1 нет, но архитектурно тест уже корректен.
@@ -59,11 +53,8 @@ test("guest conflict: two browser contexts POST the same slot; second sees SLOT_
     await pageA.goto("/");
     await expect(pageA.getByTestId("home-page")).toBeVisible();
     await expect(pageA.getByTestId("meeting-types-list")).toBeVisible({ timeout: 10_000 });
-    await pageA
-      .getByTestId(/^meeting-type-card-/)
-      .first()
-      .click();
-    await expect(pageA).toHaveURL(/\/book\//);
+    await pageA.getByTestId(`meeting-type-card-${meetingTypeId}`).click();
+    await expect(pageA).toHaveURL(`/book/${meetingTypeId}`);
     await expect(pageA.getByTestId("book-grid")).toBeVisible({ timeout: 10_000 });
 
     const slotA = pageA.getByTestId(/^slot-/).first();
@@ -87,11 +78,8 @@ test("guest conflict: two browser contexts POST the same slot; second sees SLOT_
     // (вариант b), либо ещё стоит, но submit вернёт ошибку (вариант a).
     await pageB.goto("/");
     await expect(pageB.getByTestId("meeting-types-list")).toBeVisible({ timeout: 10_000 });
-    await pageB
-      .getByTestId(/^meeting-type-card-/)
-      .first()
-      .click();
-    await expect(pageB).toHaveURL(/\/book\//);
+    await pageB.getByTestId(`meeting-type-card-${meetingTypeId}`).click();
+    await expect(pageB).toHaveURL(`/book/${meetingTypeId}`);
     await expect(pageB.getByTestId("book-grid")).toBeVisible({ timeout: 10_000 });
 
     const slotB = pageB.getByTestId(slotTestid);
