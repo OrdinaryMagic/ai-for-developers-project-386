@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useForm } from "react-hook-form";
+import { DateTime } from "luxon";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -12,9 +13,10 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 
+import type { MeetingType } from "@/features/guest/api";
 import { createBooking, type Booking, type DomainError } from "@/features/guest/book/api";
-import { formatSlot } from "@/features/guest/book/timeFormat";
 import { useOwnerTimezone } from "@/features/owner/bookings/OwnerTimezoneContext";
+import { formatBookingSummary } from "@/lib/dateTime";
 
 /**
  * Шаблон валидации email для react-hook-form. Цель — мгновенная
@@ -41,7 +43,8 @@ type SubmitState =
   | { kind: "network-error"; message: string };
 
 export interface BookingFormProps {
-  meetingTypeId: string;
+  /** Название и длительность нужны для человекочитаемого summary до POST. */
+  meetingType: MeetingType;
   /** Пре-заполненный ISO старта слота (`startsAt` из `AvailabilityDay.slots`). */
   slot: string;
   /** Колбэк при успешном `POST /bookings` — родитель ведёт в `/confirmed`. */
@@ -64,7 +67,7 @@ export const BOOKING_ERROR_MESSAGES: Readonly<Record<DomainError["code"], string
   INVALID_DURATION: "Длительность встречи изменилась, обновите страницу.",
 };
 
-export function BookingForm({ meetingTypeId, slot, onBooked, onCancel }: BookingFormProps) {
+export function BookingForm({ meetingType, slot, onBooked, onCancel }: BookingFormProps) {
   const { timezone } = useOwnerTimezone();
   const form = useForm<BookingFormValues>({
     defaultValues: { name: "", email: "" },
@@ -86,7 +89,7 @@ export function BookingForm({ meetingTypeId, slot, onBooked, onCancel }: Booking
       email: values.email.trim(),
     };
     const outcome = await createBooking({
-      meetingTypeId,
+      meetingTypeId: meetingType.id,
       startsAt: slot,
       guestName: trimmed.name,
       guestEmail: trimmed.email,
@@ -106,6 +109,10 @@ export function BookingForm({ meetingTypeId, slot, onBooked, onCancel }: Booking
   const isBusy = isSubmitting || state.kind === "submitting";
   const showDomainBanner = state.kind === "domain-error";
   const showNetworkBanner = state.kind === "network-error";
+  const endsAt =
+    DateTime.fromISO(slot, { zone: timezone })
+      .plus({ minutes: meetingType.durationMinutes })
+      .toISO() ?? slot;
 
   return (
     <Form {...form}>
@@ -117,18 +124,10 @@ export function BookingForm({ meetingTypeId, slot, onBooked, onCancel }: Booking
       >
         <div
           data-testid="booking-prefilled-slot"
-          className="rounded-md border bg-muted/40 px-3 py-2 text-sm"
+          className="rounded-md border bg-muted/40 px-3 py-2 text-sm font-medium"
         >
-          <p>
-            <span className="text-muted-foreground">Время: </span>
-            <span className="font-medium">{formatSlot(slot, timezone)}</span>
-          </p>
-          <p
-            className="font-mono text-xs text-muted-foreground"
-            data-testid="booking-prefilled-slot-iso"
-          >
-            {slot}
-          </p>
+          {formatBookingSummary(meetingType.name, slot, endsAt, timezone)}
+          <input type="hidden" data-testid="booking-prefilled-slot-iso" value={slot} readOnly />
         </div>
 
         {showDomainBanner && (

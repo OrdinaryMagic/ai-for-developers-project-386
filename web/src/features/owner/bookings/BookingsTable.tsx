@@ -6,8 +6,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { formatDateTime } from "@/lib/dateTime";
 import { useOwnerTimezone } from "./OwnerTimezoneContext";
-import { formatDateTime } from "./formatTime";
 import type { Booking } from "./api";
 
 interface BookingsTableProps {
@@ -20,11 +20,11 @@ export function BookingsTable({ bookings }: BookingsTableProps) {
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead data-testid="bookings-table-head-meeting-type">Meeting type</TableHead>
-          <TableHead data-testid="bookings-table-head-guest-name">Guest</TableHead>
+          <TableHead data-testid="bookings-table-head-meeting-type">Тип встречи</TableHead>
+          <TableHead data-testid="bookings-table-head-guest-name">Гость</TableHead>
           <TableHead data-testid="bookings-table-head-guest-email">Email</TableHead>
-          <TableHead data-testid="bookings-table-head-starts-at">Starts at</TableHead>
-          <TableHead data-testid="bookings-table-head-ends-at">Ends at</TableHead>
+          <TableHead data-testid="bookings-table-head-starts-at">Начало</TableHead>
+          <TableHead data-testid="bookings-table-head-ends-at">Окончание</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody data-testid="bookings-table">

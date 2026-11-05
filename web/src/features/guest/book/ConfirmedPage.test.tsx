@@ -40,9 +40,13 @@ describe("ConfirmedPage #33", () => {
     expect(screen.getByTestId("booking-success-meeting-type-name")).toHaveTextContent(
       "30-минутная консультация",
     );
-    const dates = screen.getByTestId("booking-success-dates");
-    expect(dates).toHaveTextContent("09:00");
-    expect(dates).toHaveTextContent("09:30");
+    expect(screen.getByTestId("booking-success-summary")).toHaveTextContent(
+      "30-минутная консультация · среда, 4 ноября 2026 · 09:00–09:30",
+    );
+    expect(screen.getByTestId("booking-success-dates")).toHaveTextContent(
+      "среда, 4 ноября 2026 · 09:00–09:30",
+    );
+    expect(screen.getByTestId("booking-success")).not.toHaveTextContent(SLOT);
   });
 
   it("показывает fallback когда открыт без state (например, после reload)", () => {

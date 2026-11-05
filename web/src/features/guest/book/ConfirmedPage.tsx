@@ -4,8 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 import type { Booking } from "@/features/guest/book/api";
-import { formatDateTime } from "@/features/owner/bookings/formatTime";
 import { useOwnerTimezone } from "@/features/owner/bookings/OwnerTimezoneContext";
+import { formatBookingDateAndTime } from "@/lib/dateTime";
 
 /**
  * Route-state session, переданный из {@link BookingForm} при успешном
@@ -55,8 +55,12 @@ export function ConfirmedPage() {
 
       <Card className="mt-6 max-w-xl">
         <CardHeader>
-          <CardTitle data-testid="booking-success-meeting-type-name" className="text-lg">
-            {booking.meetingTypeName}
+          <CardTitle data-testid="booking-success-summary" className="text-lg">
+            <span data-testid="booking-success-meeting-type-name">{booking.meetingTypeName}</span>
+            {" · "}
+            <span data-testid="booking-success-dates">
+              {formatBookingDateAndTime(booking.startsAt, booking.endsAt, timezone)}
+            </span>
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3 text-sm">
@@ -64,14 +68,6 @@ export function ConfirmedPage() {
             <p className="text-muted-foreground">Идентификатор брони</p>
             <p data-testid="booking-success-uuid" className="font-mono break-all">
               {booking.id}
-            </p>
-          </div>
-          <div>
-            <p className="text-muted-foreground">Дата и время</p>
-            <p data-testid="booking-success-dates">
-              с {formatDateTime(booking.startsAt, timezone)}
-              <br />
-              до {formatDateTime(booking.endsAt, timezone)}
             </p>
           </div>
           <div>

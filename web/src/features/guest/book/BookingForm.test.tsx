@@ -9,6 +9,14 @@ const MEETING_TYPE_ID = "11111111-1111-4111-8111-111111111111";
 const SLOT = "2026-11-04T09:00:00.000+03:00";
 const MEETING_TYPE_NAME = "30-минутная консультация";
 const BOOKING_ID = "22222222-2222-4222-8222-222222222222";
+const SELECTED_SUMMARY = "30-минутная консультация · среда, 4 ноября 2026 · 09:00–09:30";
+
+const meetingTypeFixture = {
+  id: MEETING_TYPE_ID,
+  name: MEETING_TYPE_NAME,
+  description: "Знакомство",
+  durationMinutes: 30,
+};
 
 const sampleAvailability = {
   meetingTypeId: MEETING_TYPE_ID,
@@ -72,6 +80,14 @@ function setupHappyFetch(createBookingResponse: Response) {
         }),
       );
     }
+    if (url === `/api/meeting-types/${MEETING_TYPE_ID}`) {
+      return Promise.resolve(
+        new Response(JSON.stringify(meetingTypeFixture), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    }
     if (url === "/api/bookings") {
       return Promise.resolve(createBookingResponse);
     }
@@ -119,8 +135,10 @@ describe("BookingForm — guests happy path (#33)", () => {
 
     const form = await screen.findByTestId("booking-form");
     expect(form).toBeInTheDocument();
-    expect(screen.getByTestId("booking-prefilled-slot-iso")).toHaveTextContent(SLOT);
-    expect(screen.getByTestId("booking-prefilled-slot")).toHaveTextContent("09:00");
+    expect(screen.getByTestId("booking-prefilled-slot-iso")).toHaveValue(SLOT);
+    expect(screen.getByTestId("booking-prefilled-slot-iso")).not.toBeVisible();
+    expect(screen.getByTestId("booking-prefilled-slot")).toHaveTextContent(SELECTED_SUMMARY);
+    expect(screen.getByTestId("booking-prefilled-slot")).not.toHaveTextContent(SLOT);
 
     await user.type(screen.getByTestId("booking-name"), "Иван Петров");
     await user.type(screen.getByTestId("booking-email"), "ivan@example.com");
@@ -152,8 +170,11 @@ describe("BookingForm — guests happy path (#33)", () => {
     expect(screen.getByTestId("booking-success-meeting-type-name")).toHaveTextContent(
       MEETING_TYPE_NAME,
     );
-    expect(screen.getByTestId("booking-success-dates")).toHaveTextContent("09:00");
-    expect(screen.getByTestId("booking-success-dates")).toHaveTextContent("09:30");
+    expect(screen.getByTestId("booking-success-summary")).toHaveTextContent(SELECTED_SUMMARY);
+    expect(screen.getByTestId("booking-success-dates")).toHaveTextContent(
+      "среда, 4 ноября 2026 · 09:00–09:30",
+    );
+    expect(screen.getByTestId("booking-success")).not.toHaveTextContent(SLOT);
 
     // Drain pending microtasks so act() reports a clean exit.
     await act(async () => {});

@@ -2,14 +2,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   meetingTypesAvailability,
+  meetingTypesGetById,
   meetingTypesList,
   type meetingTypesAvailabilityResponse,
+  type meetingTypesGetByIdResponse,
   type meetingTypesListResponse,
 } from "@/api/sdk";
-import { getAvailability, listMeetingTypes } from "@/features/guest/api";
+import { getAvailability, getMeetingType, listMeetingTypes } from "@/features/guest/api";
 
 vi.mock("@/api/sdk", () => ({
   meetingTypesAvailability: vi.fn(),
+  meetingTypesGetById: vi.fn(),
   meetingTypesList: vi.fn(),
 }));
 
@@ -35,9 +38,14 @@ function availabilityResult(status: number, data: unknown): meetingTypesAvailabi
   return { status, data, headers: new Headers() } as meetingTypesAvailabilityResponse;
 }
 
+function meetingTypeResult(status: number, data: unknown): meetingTypesGetByIdResponse {
+  return { status, data, headers: new Headers() } as meetingTypesGetByIdResponse;
+}
+
 describe("guest read adapters", () => {
   beforeEach(() => {
     vi.mocked(meetingTypesList).mockReset();
+    vi.mocked(meetingTypesGetById).mockReset();
     vi.mocked(meetingTypesAvailability).mockReset();
   });
 
@@ -45,6 +53,13 @@ describe("guest read adapters", () => {
     vi.mocked(meetingTypesList).mockResolvedValue(listResult(200, [MEETING_TYPE]));
 
     await expect(listMeetingTypes()).resolves.toEqual([MEETING_TYPE]);
+  });
+
+  it("returns one generated meeting type for the booking summary", async () => {
+    vi.mocked(meetingTypesGetById).mockResolvedValue(meetingTypeResult(200, MEETING_TYPE));
+
+    await expect(getMeetingType(MEETING_TYPE.id)).resolves.toEqual(MEETING_TYPE);
+    expect(meetingTypesGetById).toHaveBeenCalledWith(MEETING_TYPE.id);
   });
 
   it("returns availability only for a valid 200 response", async () => {

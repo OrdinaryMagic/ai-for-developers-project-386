@@ -49,7 +49,7 @@ export interface Availability {
   meetingTypeId: string;
   /** Начало окна (ISO 8601 в TZ владельца). */
   windowStart: string;
-  /** Конец окна включительно (ISO 8601 в TZ владельца). */
+  /** Конец окна исключительно: полночь первого дня за его пределами (ISO 8601 в TZ владельца). */
   windowEnd: string;
   days: AvailabilityDay[];
 }

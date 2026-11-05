@@ -1,13 +1,20 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
-import { getAvailability, type Availability } from "@/features/guest/api";
+import {
+  getAvailability,
+  getMeetingType,
+  type Availability,
+  type MeetingType,
+} from "@/features/guest/api";
 import { BookingForm } from "@/features/guest/book/BookingForm";
 import { DayAvailability } from "@/features/guest/book/DayAvailability";
+import { useOwnerTimezone } from "@/features/owner/bookings/OwnerTimezoneContext";
+import { formatBookingWindow } from "@/lib/dateTime";
 
 type State =
   | { kind: "loading" }
-  | { kind: "ready"; availability: Availability }
+  | { kind: "ready"; availability: Availability; meetingType: MeetingType }
   | { kind: "error"; message: string };
 
 /**
@@ -22,6 +29,7 @@ type State =
  */
 export function BookPage() {
   const { meetingTypeId } = useParams<{ meetingTypeId: string }>();
+  const { timezone } = useOwnerTimezone();
   const navigate = useNavigate();
   const [state, setState] = useState<State>({ kind: "loading" });
   const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
@@ -33,10 +41,10 @@ export function BookPage() {
     }
     let aborted = false;
     setState({ kind: "loading" });
-    getAvailability(meetingTypeId)
-      .then((availability) => {
+    Promise.all([getAvailability(meetingTypeId), getMeetingType(meetingTypeId)])
+      .then(([availability, meetingType]) => {
         if (aborted) return;
-        setState({ kind: "ready", availability });
+        setState({ kind: "ready", availability, meetingType });
       })
       .catch((err: unknown) => {
         if (aborted) return;
@@ -69,7 +77,12 @@ export function BookPage() {
         <h1 className="text-3xl font-semibold tracking-tight">Выбор слота</h1>
         {state.kind === "ready" ? (
           <p className="text-sm text-muted-foreground mt-1">
-            Окно бронирования: {state.availability.windowStart} → {state.availability.windowEnd}
+            Окно бронирования:{" "}
+            {formatBookingWindow(
+              state.availability.windowStart,
+              state.availability.windowEnd,
+              timezone,
+            )}
           </p>
         ) : null}
       </header>
@@ -90,7 +103,7 @@ export function BookPage() {
         <section className="max-w-md space-y-4">
           <h2 className="text-xl font-medium">Заполните данные</h2>
           <BookingForm
-            meetingTypeId={meetingTypeId}
+            meetingType={state.meetingType}
             slot={selectedSlot}
             onBooked={handleBooked}
             onCancel={handleCancel}
