@@ -6,18 +6,11 @@ import BookPage from "@/features/guest/book/BookPage";
 
 const MEETING_TYPE_ID = "11111111-1111-4111-8111-111111111111";
 
-function mockFetchOnce(
-  url: string | RegExp,
-  body: unknown,
-  init: { status?: number; ok?: boolean } = {},
-) {
-  const status = init.status ?? 200;
-  const ok = init.ok ?? (status >= 200 && status < 300);
-  const response = {
-    ok,
-    status,
-    json: async () => body,
-  } as unknown as Response;
+function mockFetchOnce(url: string | RegExp, body: unknown, init: { status?: number } = {}) {
+  const response = new Response(JSON.stringify(body), {
+    status: init.status ?? 200,
+    headers: { "Content-Type": "application/json" },
+  });
   const fetchSpy = vi.spyOn(globalThis, "fetch");
   fetchSpy.mockImplementationOnce(async (input) => {
     const resolved = typeof input === "string" ? input : input.toString();

@@ -14,11 +14,12 @@ describe("App", () => {
   });
 
   it("mounts the home page at / and fetches meeting types", async () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: async () => [],
-    } as unknown as Response);
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response("[]", {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
 
     render(
       <MemoryRouter>
@@ -28,7 +29,7 @@ describe("App", () => {
 
     expect(screen.getByTestId("home-page")).toBeInTheDocument();
     await waitFor(() => {
-      expect(fetchSpy).toHaveBeenCalledWith("/api/meeting-types");
+      expect(fetchSpy).toHaveBeenCalledWith("/api/meeting-types", { method: "GET" });
     });
     expect(await screen.findByTestId("home-empty")).toBeInTheDocument();
 

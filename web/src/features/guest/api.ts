@@ -1,24 +1,64 @@
-import type { components } from "@/api/sdk";
+import {
+  meetingTypesAvailability,
+  meetingTypesList,
+  type Availability,
+  type AvailabilityDay,
+  type MeetingType,
+} from "@/api/sdk";
 
-export type MeetingType = components["schemas"]["MeetingType"];
-export type Availability = components["schemas"]["Availability"];
-export type AvailabilityDay = components["schemas"]["AvailabilityDay"];
+export type { Availability, AvailabilityDay, MeetingType };
 
-const MEETING_TYPES_PATH = "/api/meeting-types";
+function isMeetingType(value: unknown): value is MeetingType {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.id === "string" &&
+    typeof candidate.name === "string" &&
+    typeof candidate.description === "string" &&
+    typeof candidate.durationMinutes === "number"
+  );
+}
+
+function isAvailability(value: unknown): value is Availability {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.meetingTypeId === "string" &&
+    typeof candidate.windowStart === "string" &&
+    typeof candidate.windowEnd === "string" &&
+    Array.isArray(candidate.days) &&
+    candidate.days.every((day: unknown) => {
+      if (typeof day !== "object" || day === null) return false;
+      const candidateDay = day as Record<string, unknown>;
+      return (
+        typeof candidateDay.date === "string" &&
+        Array.isArray(candidateDay.slots) &&
+        candidateDay.slots.every((slot: unknown) => typeof slot === "string")
+      );
+    })
+  );
+}
 
 export async function listMeetingTypes(): Promise<MeetingType[]> {
-  const res = await fetch(MEETING_TYPES_PATH);
-  if (!res.ok) {
-    throw new Error(`GET ${MEETING_TYPES_PATH} failed: HTTP ${res.status}`);
+  const result = await meetingTypesList();
+  const status: number = result.status;
+  const data: unknown = result.data;
+  if (status !== 200) throw new Error(`listMeetingTypes: HTTP ${status}`);
+  if (!Array.isArray(data) || !data.every(isMeetingType)) {
+    throw new Error("listMeetingTypes: пустое или невалидное тело ответа");
   }
-  return (await res.json()) as MeetingType[];
+  return data;
 }
 
 export async function getAvailability(meetingTypeId: string): Promise<Availability> {
-  const path = `${MEETING_TYPES_PATH}/${encodeURIComponent(meetingTypeId)}/availability`;
-  const res = await fetch(path);
-  if (!res.ok) {
-    throw new Error(`GET ${path} failed: HTTP ${res.status}`);
+  const result = await meetingTypesAvailability(meetingTypeId);
+  const status: number = result.status;
+  const data: unknown = result.data;
+  if (status !== 200) {
+    throw new Error(`getAvailability: HTTP ${status}`);
   }
-  return (await res.json()) as Availability;
+  if (!isAvailability(data)) {
+    throw new Error("getAvailability: пустое или невалидное тело ответа");
+  }
+  return data;
 }

@@ -72,7 +72,7 @@
 
 ## Каркас приложения
 
-Стек: **TypeScript + Fastify** (API), Vite + shadcn/ui (фронтенд, будет добавлен), **oxlint/oxfmt**, **vitest**, **mise**, **hk**, Makefile, Conventional Commits.
+Стек: **TypeScript + Fastify** (API), React + Vite + shadcn/ui (фронтенд), **oxlint/oxfmt**, **vitest**, **mise**, **hk**, Makefile, Conventional Commits.
 
 ### Запуск
 
@@ -95,7 +95,7 @@ make check                  # полный project gate, включая web buil
 
 ### mise
 
-- Инструменты и окружение — `mise.toml`: Node 22, `PORT=3000`, `HOST=127.0.0.1`.
+- Инструменты и окружение — `mise.toml`: Node 22.23.4 (минимум `>=22.18.0` для Orval), `PORT=3000`, `HOST=127.0.0.1`.
 - Таски: `mise run dev|start|build|test|lint|format|typecheck|check`.
   - **`mise run check`** — единая команда полного project gate: backend typecheck → web typecheck → repo-wide lint → repo-wide format:check → backend unit-тесты → web unit-тесты → production-сборка web → Playwright e2e. Все шаги выполняются последовательно с fail-fast. Используется локально (`make check`) и в CI; отдельный более широкий CI-набор не поддерживается.
 - Хуки (события окружения): `postinstall` → `npm install` после установки инструментов mise; `watch_files` на `package.json` → `npm install` при изменении в активированном шелле.
@@ -116,7 +116,7 @@ Conventional Commits — формат `type(scope): subject` (feat, fix, chore, 
 
 ### CI
 
-Workflow `.github/workflows/ci.yml` запускается на каждый push (любая ветка и тег). Job `check` использует `jdx/mise-action@v5` для установки инструментов из `mise.toml` (Node 22, hk и т.д.), отдельно выполняет `npm ci` для root и `web/`, восстанавливает кэш `~/.cache/ms-playwright` и устанавливает Chromium через `npm run test:e2e:install`. После проверок свежести OpenAPI/SDK та же canonical-задача `mise run check` прогоняет весь gate, включая Playwright; отдельного e2e-job нет. При падении `playwright-report/` и `test-results/` загружаются как артефакты. Docker smoke-job имеет `needs: check`, поэтому стартует только после полного gate с браузерными сценариями. Стандартный Hexlet-чекер лежит отдельно в `hexlet-check.yml` и его трогать не нужно.
+Workflow `.github/workflows/ci.yml` запускается на каждый push (любая ветка и тег). Job `check` использует `jdx/mise-action@v5` для установки инструментов из `mise.toml` (Node 22.23.4, hk и т.д.), отдельно выполняет `npm ci` для root и `web/`, восстанавливает кэш `~/.cache/ms-playwright` и устанавливает Chromium через `npm run test:e2e:install`. После проверок свежести OpenAPI/SDK та же canonical-задача `mise run check` прогоняет весь gate, включая Playwright; отдельного e2e-job нет. При падении `playwright-report/` и `test-results/` загружаются как артефакты. Docker smoke-job имеет `needs: check`, поэтому стартует только после полного gate с браузерными сценариями. Стандартный Hexlet-чекер лежит отдельно в `hexlet-check.yml` и его трогать не нужно.
 
 ### Релизы
 
@@ -504,7 +504,7 @@ Fastify-стек. Этот раздел собирает команды и пр�
 
 - `npm run dev:web` — Vite dev-сервер на `127.0.0.1:5173`. Ожидается запущенный backend на `127.0.0.1:3000` (`make dev`); Vite проксирует `/api/*` на backend, так что из браузера все запросы идут на тот же origin и CORS не нужен.
 - `npm run build:web` — Vite-сборка; результат — статические ассеты в `web/dist/`.
-- `npm run gen:sdk` — регенерировать `web/src/api/sdk.ts` из `openapi.yaml` (генератор `openapi-typescript@7.13.0`, тикет #29). Прогон обязателен после любой правки `spec/*.tsp` и после изменения `openapi.yaml` релизом — см. AGENTS.md rule #9.
+- `npm run gen:sdk` — регенерировать `web/src/api/sdk.ts` из `openapi.yaml` через закреплённый в manifest/lockfile **Orval 8.46.0** (тикет #78). Конфиг `orval.config.ts` задаёт `client: "fetch"`, single-file output и `baseUrl: "/api"`; генератор создаёт и API-типы, и endpoint-функции, возвращающие `{ data, status, headers }`. Feature-адаптеры переводят этот result в UI success/domain/network outcome; ручные HTTP wrappers и custom mutators не используются. Задача сначала обновляет OpenAPI из `spec/*.tsp`, не скачивает генератор через `npx -y`, а CI проверяет отсутствие diff после regeneration — см. AGENTS.md rules #9–11.
 - `npm run test:e2e` — Playwright end-to-end против реального Fastify-сервера (Wave C, тикет #34). Сам поднимает backend через `playwright.config.ts::webServer` (Fastify на `E2E_API_PORT`, по умолчанию 3030) и Vite dev-сервер на 5173; внешний `make start` не требуется ни локально, ни в CI. По умолчанию уже запущенные серверы **не переиспользуются**: занятый порт является ошибкой, а не разрешением подключиться к чужому процессу. Этот strict-режим входит в `make check`.
 - `npm run test:e2e:reuse` — явный ручной быстрый режим, который разрешает reuse уже запущенных backend/Vite на тех же портах. В canonical `make check` он не используется.
 - `npm run test:e2e:install` — `playwright install --with-deps chromium`, разовая установка браузера и системных зависимостей для e2e.
@@ -515,8 +515,9 @@ Fastify-стек. Этот раздел собирает команды и пр�
 вместе с API на одном домене ([ADR-0006](docs/adr/0006-single-origin-spa.md), раздел
 «UI на том же домене»). Практические следствия для фронтенд-инженера:
 
-- Пути API в клиентском коде остаются с префиксом `/api` — в dev его срезает
-  Vite-прокси, в production backend-алиас. Менять клиентские `fetch` не нужно.
+- Generated endpoint-функции получают префикс `/api` из `baseUrl` в
+  `orval.config.ts` — в dev его срезает Vite-прокси, в production backend-алиас.
+  Канонические OpenAPI paths не меняются, ручные клиентские `fetch` не нужны.
 - Клиентские маршруты (`/book/:id`, `/admin/event-types`) обслуживает SPA-fallback:
   сервер отдаёт для них `index.html`, а не 404.
 - `npm run build:web` нужен только для локальной проверки; в образ фронтенд
