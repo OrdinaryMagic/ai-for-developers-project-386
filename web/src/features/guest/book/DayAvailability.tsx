@@ -15,7 +15,8 @@ export interface DayAvailabilityProps {
 
 export function DayAvailability({ day, onSlotClick }: DayAvailabilityProps) {
   const { timezone } = useOwnerTimezone();
-  const slotsCount = day.slots.length;
+  const slots = day.slots.slice(0, 18);
+  const slotsCount = slots.length;
   return (
     <section
       data-testid={`day-${day.date}`}
@@ -34,7 +35,7 @@ export function DayAvailability({ day, onSlotClick }: DayAvailabilityProps) {
         </p>
       ) : (
         <div data-testid="day-slots" className="flex flex-wrap gap-2">
-          {day.slots.map((startsAt) => (
+          {slots.map((startsAt) => (
             <SlotButton
               key={startsAt}
               startsAt={startsAt}
