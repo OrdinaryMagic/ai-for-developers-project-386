@@ -1,5 +1,6 @@
 import {
   meetingTypesAvailability,
+  meetingTypesGetById,
   meetingTypesList,
   type Availability,
   type AvailabilityDay,
@@ -46,6 +47,17 @@ export async function listMeetingTypes(): Promise<MeetingType[]> {
   if (status !== 200) throw new Error(`listMeetingTypes: HTTP ${status}`);
   if (!Array.isArray(data) || !data.every(isMeetingType)) {
     throw new Error("listMeetingTypes: пустое или невалидное тело ответа");
+  }
+  return data;
+}
+
+export async function getMeetingType(meetingTypeId: string): Promise<MeetingType> {
+  const result = await meetingTypesGetById(meetingTypeId);
+  const status: number = result.status;
+  const data: unknown = result.data;
+  if (status !== 200) throw new Error(`getMeetingType: HTTP ${status}`);
+  if (!isMeetingType(data)) {
+    throw new Error("getMeetingType: пустое или невалидное тело ответа");
   }
   return data;
 }
