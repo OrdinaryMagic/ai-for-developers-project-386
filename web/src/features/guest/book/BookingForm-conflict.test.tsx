@@ -20,6 +20,13 @@ const sampleAvailability = {
   ],
 };
 
+const meetingTypeFixture = {
+  id: MEETING_TYPE_ID,
+  name: "Консультация",
+  description: "Знакомство",
+  durationMinutes: 30,
+};
+
 const configResponse = {
   owner: { name: "Owner", timezone: "Europe/Moscow" },
   windowDays: 14,
@@ -55,6 +62,14 @@ function setupFetch(handler: (url: string, init: RequestInit | undefined) => Res
     if (url === `/api/meeting-types/${MEETING_TYPE_ID}/availability`) {
       return Promise.resolve(
         new Response(JSON.stringify(sampleAvailability), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    }
+    if (url === `/api/meeting-types/${MEETING_TYPE_ID}`) {
+      return Promise.resolve(
+        new Response(JSON.stringify(meetingTypeFixture), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         }),

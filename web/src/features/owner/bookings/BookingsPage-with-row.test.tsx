@@ -82,11 +82,16 @@ describe("BookingsPage (one row)", () => {
     expect(row).toHaveTextContent("[email protected]");
 
     expect(screen.getByTestId("booking-row-starts-at")).toHaveTextContent(
-      "01.12.2026 09:00 Europe/Moscow",
+      "вторник, 1 декабря 2026, 09:00",
     );
     expect(screen.getByTestId("booking-row-ends-at")).toHaveTextContent(
-      "01.12.2026 09:30 Europe/Moscow",
+      "вторник, 1 декабря 2026, 09:30",
     );
+    expect(screen.getByRole("heading", { name: "Бронирования" })).toBeInTheDocument();
+    expect(screen.getByTestId("bookings-table-head-meeting-type")).toHaveTextContent("Тип встречи");
+    expect(screen.getByTestId("bookings-table-head-guest-name")).toHaveTextContent("Гость");
+    expect(screen.getByTestId("bookings-table-head-starts-at")).toHaveTextContent("Начало");
+    expect(screen.getByTestId("bookings-table-head-ends-at")).toHaveTextContent("Окончание");
 
     expect(screen.queryByTestId("bookings-empty")).not.toBeInTheDocument();
   });

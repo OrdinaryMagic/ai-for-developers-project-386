@@ -62,12 +62,25 @@ test("guest happy path: select meeting type, pick slot, submit, see success UUID
   // поэтому первый слот всегда валиден для записи.
   const slot = page.getByTestId(/^slot-/).first();
   await expect(slot).toBeVisible({ timeout: 10_000 });
+  await expect(slot).toHaveText(/^\d{2}:\d{2}$/);
+  const slotTestid = await slot.getAttribute("data-testid");
+  if (!slotTestid) throw new Error("slot testid is null");
+  const startsAt = slotTestid.slice("slot-".length);
   await slot.click();
 
   // После клика по слоту ожидаем увидеть форму гостя (B4-тест).
   // Сама форма ответственна за B4; здесь — только проверка контракта
   // через data-testid'ы, заявленные в спецификации Wave B / C.
   await expect(page.getByTestId("booking-form")).toBeVisible({ timeout: 10_000 });
+  const selectedSlot = page.getByTestId("booking-prefilled-slot");
+  await expect(selectedSlot).toContainText("Тестовая консультация ·");
+  await expect(selectedSlot).toContainText(
+    /[а-я]+, \d{1,2} [а-я]+ \d{4} · \d{2}:\d{2}–\d{2}:\d{2}/,
+  );
+  await expect(selectedSlot).not.toContainText(startsAt);
+  await expect(page.getByTestId("booking-prefilled-slot-iso")).toHaveValue(startsAt);
+  await expect(page.getByTestId("booking-prefilled-slot-iso")).not.toBeVisible();
+  const selectedSummary = await selectedSlot.innerText();
 
   await page.getByTestId("booking-name").fill("Иван Иванов");
   await page.getByTestId("booking-email").fill("ivan@example.com");
@@ -79,4 +92,6 @@ test("guest happy path: select meeting type, pick slot, submit, see success UUID
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
   );
   await expect(page.getByTestId("booking-success-meeting-type-name")).toContainText(/\S+/);
+  await expect(page.getByTestId("booking-success-summary")).toHaveText(selectedSummary);
+  await expect(page.getByTestId("booking-success")).not.toContainText(startsAt);
 });

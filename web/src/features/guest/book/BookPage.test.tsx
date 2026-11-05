@@ -5,19 +5,27 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import BookPage from "@/features/guest/book/BookPage";
 
 const MEETING_TYPE_ID = "11111111-1111-4111-8111-111111111111";
+const MEETING_TYPE = {
+  id: MEETING_TYPE_ID,
+  name: "Консультация",
+  description: "Знакомство",
+  durationMinutes: 30,
+};
 
-function mockFetchOnce(url: string | RegExp, body: unknown, init: { status?: number } = {}) {
-  const response = new Response(JSON.stringify(body), {
-    status: init.status ?? 200,
-    headers: { "Content-Type": "application/json" },
-  });
-  const fetchSpy = vi.spyOn(globalThis, "fetch");
-  fetchSpy.mockImplementationOnce(async (input) => {
-    const resolved = typeof input === "string" ? input : input.toString();
-    if (typeof url === "string" ? resolved === url : url.test(resolved)) {
-      return response;
-    }
-    throw new Error(`Unexpected fetch URL: ${resolved}`);
+function mockBookPageFetch(availability: unknown) {
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    const url = typeof input === "string" ? input : input.toString();
+    const body =
+      url === `/api/meeting-types/${MEETING_TYPE_ID}/availability`
+        ? availability
+        : url === `/api/meeting-types/${MEETING_TYPE_ID}`
+          ? MEETING_TYPE
+          : null;
+    if (body === null) throw new Error(`Unexpected fetch URL: ${url}`);
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
   });
 }
 
@@ -65,16 +73,18 @@ describe("BookPage", () => {
   });
 
   it("renders a 14-day grid: 2 days × 3 slots → 6 slot buttons", async () => {
-    mockFetchOnce(
-      new RegExp(`/api/meeting-types/${MEETING_TYPE_ID}/availability$`),
-      sampleAvailability,
-    );
+    mockBookPageFetch(sampleAvailability);
     renderBookAt(`/book/${MEETING_TYPE_ID}`);
 
     const dayContainers = await screen.findAllByTestId(/^day-\d{4}-\d{2}-\d{2}$/);
     expect(dayContainers).toHaveLength(2);
+    expect(
+      screen.getByText("Окно бронирования: ср, 4 ноября 2026 — вт, 17 ноября 2026"),
+    ).toBeInTheDocument();
 
     const day1 = screen.getByTestId("day-2026-11-04");
+    expect(within(day1).getByRole("heading")).toHaveTextContent("ср, 4 ноября 2026");
+    expect(day1).not.toHaveTextContent("2026-11-04");
     expect(within(day1).queryByTestId("day-empty")).not.toBeInTheDocument();
     for (const slot of sampleAvailability.days[0]!.slots) {
       expect(within(day1).getByTestId(`slot-${slot}`)).toBeInTheDocument();
@@ -99,10 +109,7 @@ describe("BookPage", () => {
         },
       ],
     };
-    mockFetchOnce(
-      new RegExp(`/api/meeting-types/${MEETING_TYPE_ID}/availability$`),
-      emptyDayAvailability,
-    );
+    mockBookPageFetch(emptyDayAvailability);
     renderBookAt(`/book/${MEETING_TYPE_ID}`);
     const day = await screen.findByTestId("day-2026-11-04");
     expect(within(day).getByTestId("day-empty")).toBeInTheDocument();
