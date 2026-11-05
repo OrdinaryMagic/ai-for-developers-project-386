@@ -1,91 +1,100 @@
-import type { components } from "@/api/sdk";
+import {
+  meetingTypesCreate,
+  meetingTypesList,
+  DomainErrorCode,
+  type CreateMeetingTypeRequest,
+  type DomainError,
+  type MeetingType,
+} from "@/api/sdk";
 
-export type MeetingType = components["schemas"]["MeetingType"];
-export type CreateMeetingTypeRequest = components["schemas"]["CreateMeetingTypeRequest"];
-export type DomainError = components["schemas"]["DomainError"];
-export type DomainErrorCode = components["schemas"]["DomainErrorCode"];
+export type { CreateMeetingTypeRequest, DomainError, DomainErrorCode, MeetingType };
 
-/**
- * Результат вызова `POST /api/meeting-types`.
- *
- * Бэкенд возвращает `MeetingType` при HTTP 200 и `DomainError` при 4xx/5xx.
- * Сервер на spec-уровне НЕ оборачивает успех в envelope — тело напрямую
- * парсится как `MeetingType`. Сетевые сбои (TypeError от `fetch`, не-JSON
- * ответ) дают `kind: "network"` — для них UI рисует retry CTA.
- *
- * `DomainError.code` дискриминируется на уровне UI (см. {@link mapDomainError}),
- * здесь мы возвращаем сырой ответ, чтобы caller сам решил, какой текст
- * показать и куда (поле vs. банер).
- */
 export type CreateOutcome =
   | { kind: "success"; value: MeetingType }
   | { kind: "domain"; error: DomainError }
   | { kind: "network"; message: string };
 
-/** Результат `GET /api/meeting-types`. */
 export type ListOutcome =
   | { kind: "success"; value: MeetingType[] }
   | { kind: "network"; message: string };
 
-const JSON_HEADERS = { "Content-Type": "application/json" };
-
-async function parseJson<T>(res: Response, label: string): Promise<T | null> {
-  const text = await res.text();
-  if (text.length === 0) return null;
-  try {
-    return JSON.parse(text) as T;
-  } catch {
-    throw new Error(`${label}: ответ не является валидным JSON`);
-  }
+function isMeetingType(value: unknown): value is MeetingType {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.id === "string" &&
+    typeof candidate.name === "string" &&
+    typeof candidate.description === "string" &&
+    typeof candidate.durationMinutes === "number"
+  );
 }
 
-/** Загружает список существующих `MeetingType`. */
+const DOMAIN_ERROR_CODES = new Set<string>(Object.values(DomainErrorCode));
+
+function isDomainError(value: unknown, status: number): value is DomainError {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    candidate.statusCode === status &&
+    typeof candidate.code === "string" &&
+    DOMAIN_ERROR_CODES.has(candidate.code) &&
+    typeof candidate.message === "string"
+  );
+}
+
+function responseMessage(value: unknown): string {
+  if (typeof value === "object" && value !== null && "message" in value) {
+    const { message } = value;
+    if (typeof message === "string") return message;
+  }
+  return "неизвестный ответ сервера";
+}
+
+function errorMessage(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause);
+}
+
+/** Загружает типы встреч через generated Orval endpoint-функцию. */
 export async function listMeetingTypes(): Promise<ListOutcome> {
   try {
-    const res = await fetch("/api/meeting-types", { method: "GET" });
-    if (!res.ok) {
-      return {
-        kind: "network",
-        message: `GET /meeting-types: сервер ответил ${res.status}`,
-      };
+    const result = await meetingTypesList();
+    const status: number = result.status;
+    const data: unknown = result.data;
+    if (status === 200 && Array.isArray(data) && data.every(isMeetingType)) {
+      return { kind: "success", value: data };
     }
-    const parsed = await parseJson<MeetingType[]>(res, "GET /meeting-types");
-    return { kind: "success", value: parsed ?? [] };
+    if (status === 200) {
+      return { kind: "network", message: "listMeetingTypes: пустое или невалидное тело ответа" };
+    }
+    return { kind: "network", message: `listMeetingTypes: сервер ответил ${status}` };
   } catch (cause) {
-    return {
-      kind: "network",
-      message: cause instanceof Error ? cause.message : String(cause),
-    };
+    return { kind: "network", message: errorMessage(cause) };
   }
 }
 
-/** Создаёт тип встречи. */
+/** Переводит generated create result в success/domain/network outcome для формы. */
 export async function createMeetingType(input: CreateMeetingTypeRequest): Promise<CreateOutcome> {
   try {
-    const res = await fetch("/api/meeting-types", {
-      method: "POST",
-      headers: JSON_HEADERS,
-      body: JSON.stringify(input),
-    });
-    if (res.ok) {
-      const value = await parseJson<MeetingType>(res, "POST /meeting-types");
-      if (value === null) {
-        return { kind: "network", message: "POST /meeting-types: пустое тело ответа" };
-      }
-      return { kind: "success", value };
+    const result = await meetingTypesCreate(input);
+    const status: number = result.status;
+    const data: unknown = result.data;
+
+    if (status === 200) {
+      if (isMeetingType(data)) return { kind: "success", value: data };
+      return {
+        kind: "network",
+        message: "createMeetingType: пустое или невалидное тело ответа",
+      };
     }
-    const err = await parseJson<DomainError>(res, "POST /meeting-types");
-    if (err !== null) {
-      return { kind: "domain", error: err };
+    if (status === 422 && isDomainError(data, status)) return { kind: "domain", error: data };
+    if (status === 400) {
+      return {
+        kind: "network",
+        message: `Проверьте правильность заполнения полей: ${responseMessage(data).slice(0, 200)}`,
+      };
     }
-    return {
-      kind: "network",
-      message: `POST /meeting-types: сервер ответил ${res.status}`,
-    };
+    return { kind: "network", message: `createMeetingType: сервер ответил ${status}` };
   } catch (cause) {
-    return {
-      kind: "network",
-      message: cause instanceof Error ? cause.message : String(cause),
-    };
+    return { kind: "network", message: errorMessage(cause) };
   }
 }

@@ -1,86 +1,83 @@
-import type { components } from "@/api/sdk";
+import {
+  bookingsCreate,
+  DomainErrorCode,
+  type Booking,
+  type CreateBookingRequest,
+  type DomainError,
+} from "@/api/sdk";
 
-/**
- * Re-exported SDK schema types. Anything we touch on the API boundary
- * must come from `web/src/api/sdk.ts` (см. AGENTS.md rule #11). Локальные
- * `interface Booking {...}` запрещены — следующая регенерация SDK всё
- * сотрёт.
- */
-export type Booking = components["schemas"]["Booking"];
-export type CreateBookingRequest = components["schemas"]["CreateBookingRequest"];
-export type DomainError = components["schemas"]["DomainError"];
-export type DomainErrorCode = components["schemas"]["DomainErrorCode"];
+export type { Booking, CreateBookingRequest, DomainError, DomainErrorCode };
 
-/**
- * Дискриминированный результат `POST /api/bookings`. Бэкенд возвращает
- * `Booking` при успехе (HTTP 200) и `DomainError` при 4xx; 5xx/сеть идут
- * в `kind: "network"`. UI решает по `kind`, какой текст показать —
- * `Booking` в success, баннер по `DomainError.code`, retry CTA для сети.
- */
+/** Результат создания бронирования для UI: успех, доменный отказ или сбой транспорта/контракта. */
 export type CreateBookingOutcome =
   | { kind: "success"; booking: Booking }
   | { kind: "domain"; error: DomainError }
   | { kind: "network"; message: string };
 
-const JSON_HEADERS = { "Content-Type": "application/json" };
+const BOOKING_STRING_FIELDS = [
+  "id",
+  "meetingTypeId",
+  "meetingTypeName",
+  "guestName",
+  "guestEmail",
+  "startsAt",
+  "endsAt",
+] as const;
 
-async function parseJson<T>(res: Response, _label: string): Promise<T | null> {
-  const text = await res.text();
-  if (text.length === 0) return null;
-  try {
-    return JSON.parse(text) as T;
-  } catch {
-    return null;
+function isBooking(value: unknown): value is Booking {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  return BOOKING_STRING_FIELDS.every((field) => typeof candidate[field] === "string");
+}
+
+const DOMAIN_ERROR_CODES = new Set<string>(Object.values(DomainErrorCode));
+
+function isDomainError(value: unknown, status: number): value is DomainError {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    candidate.statusCode === status &&
+    typeof candidate.code === "string" &&
+    DOMAIN_ERROR_CODES.has(candidate.code) &&
+    typeof candidate.message === "string"
+  );
+}
+
+function responseMessage(value: unknown): string {
+  if (typeof value === "object" && value !== null && "message" in value) {
+    const { message } = value;
+    if (typeof message === "string") return message;
   }
+  return "неизвестный ответ сервера";
 }
 
 /**
- * Создаёт бронирование через `POST /api/bookings`. Маппит HTTP-коды на
- * `CreateBookingOutcome`:
- *
- * - `200 OK` → `kind: "success"` (тело парсится как `Booking`);
- * - `409 / 422 / 404` → `kind: "domain"` (тело парсится как `DomainError`);
- * - `400` → `kind: "domain"` с кодом `MEETING_TYPE_NOT_FOUND` исключительно
- *   для `404`; остальные `400` от Fastify-schema идут в `network` с
- *   подсказкой field-level, потому что их контракт не совпадает с
- *   `DomainError` envelope;
- * - всё прочее + сетевой сбой → `kind: "network"`.
+ * Переводит generated Orval result в UI outcome. HTTP runtime, URL и JSON
+ * сериализация находятся только в `web/src/api/sdk.ts`.
  */
 export async function createBooking(input: CreateBookingRequest): Promise<CreateBookingOutcome> {
   try {
-    const res = await fetch("/api/bookings", {
-      method: "POST",
-      headers: JSON_HEADERS,
-      body: JSON.stringify(input),
-    });
-    if (res.ok) {
-      const value = await parseJson<Booking>(res, "POST /bookings");
-      if (value === null) {
-        return { kind: "network", message: "POST /bookings: пустое тело ответа" };
-      }
-      return { kind: "success", booking: value };
+    const result = await bookingsCreate(input);
+    const status: number = result.status;
+    const data: unknown = result.data;
+
+    if (status === 200) {
+      if (isBooking(data)) return { kind: "success", booking: data };
+      return { kind: "network", message: "createBooking: пустое или невалидное тело ответа" };
     }
-    if (res.status === 409 || res.status === 422 || res.status === 404) {
-      const err = await parseJson<DomainError>(res, "POST /bookings");
-      if (err !== null) {
-        return { kind: "domain", error: err };
-      }
+
+    if ((status === 404 || status === 409 || status === 422) && isDomainError(data, status)) {
+      return { kind: "domain", error: data };
+    }
+
+    if (status === 400) {
       return {
         kind: "network",
-        message: `POST /bookings: сервер ответил ${res.status}`,
+        message: `Проверьте правильность заполнения полей: ${responseMessage(data).slice(0, 200)}`,
       };
     }
-    if (res.status === 400) {
-      const text = await res.text();
-      return {
-        kind: "network",
-        message: `Проверьте правильность заполнения полей: ${text.slice(0, 200)}`,
-      };
-    }
-    return {
-      kind: "network",
-      message: `POST /bookings: сервер ответил ${res.status}`,
-    };
+
+    return { kind: "network", message: `createBooking: сервер ответил ${status}` };
   } catch (cause) {
     return {
       kind: "network",

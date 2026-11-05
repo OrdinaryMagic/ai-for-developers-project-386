@@ -46,16 +46,17 @@ describe("ConfirmedPage #33", () => {
   });
 
   it("показывает fallback когда открыт без state (например, после reload)", () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({
-        owner: { name: "Owner", timezone: "Europe/Moscow" },
-        windowDays: 14,
-        slotStepMinutes: 30,
-        workingHours: { start: "09:00", end: "18:00" },
-      }),
-    } as unknown as Response);
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          owner: { name: "Owner", timezone: "Europe/Moscow" },
+          windowDays: 14,
+          slotStepMinutes: 30,
+          workingHours: { start: "09:00", end: "18:00" },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
 
     renderConfirmed(null);
 

@@ -29,7 +29,7 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Reads mise.toml, installs the pinned versions of the tools (Node 22,
+      # Reads mise.toml, installs the pinned versions of the tools (Node 22.23.4,
       # hk, npm:@commitlint/cli) and runs the postinstall hook which does
       # root `npm install` and `hk install` (git hooks). Web dependencies are
       # installed explicitly below. Built-in cache keeps the
@@ -90,11 +90,11 @@ jobs:
             exit 1
           fi
 
-      # openapi.yaml → TS-типы для фронта. Шаг бежит ПОСЛЕ Regenerate OpenAPI,
-      # чтобы любой drift, прилетевший из spec/*.tsp, уже был зафиксирован в
-      # openapi.yaml до регенерации SDK. Если коммитированный web/src/api/sdk.ts
-      # отличается от того, что выдаёт `mise run gen:sdk`, CI падает — см.
-      # AGENTS.md rule #9 (web/src/api/sdk.ts is a generated artifact).
+      # openapi.yaml → single-file Orval SDK (API-типы + fetch endpoint-функции).
+      # Шаг бежит ПОСЛЕ Regenerate OpenAPI, чтобы любой drift из spec/*.tsp уже
+      # был зафиксирован в openapi.yaml. Если закоммиченный web/src/api/sdk.ts
+      # отличается от результата pinned `mise run gen:sdk`, CI падает — см.
+      # AGENTS.md rules #9–11 (SDK is a generated artifact and the only web runtime).
       - name: Regenerate SDK and verify it is up-to-date
         run: |
           mise run gen:sdk
@@ -141,7 +141,7 @@ jobs:
       - uses: actions/checkout@v7
 
       # mise ставит те же тулзы, что и в check ([tools] в mise.toml:
-      # node 22, hk, commitlint). Кэш jdx/mise-action переиспользует
+      # node 22.23.4, hk, commitlint). Кэш jdx/mise-action переиспользует
       # слой установки инструментов между job'ами.
       - uses: jdx/mise-action@v5
         with:

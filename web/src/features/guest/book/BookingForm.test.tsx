@@ -109,7 +109,9 @@ describe("BookingForm — guests happy path (#33)", () => {
 
     // availability fetch от BookPage
     await waitFor(() => {
-      expect(fetchSpy).toHaveBeenCalledWith(`/api/meeting-types/${MEETING_TYPE_ID}/availability`);
+      expect(fetchSpy).toHaveBeenCalledWith(`/api/meeting-types/${MEETING_TYPE_ID}/availability`, {
+        method: "GET",
+      });
     });
 
     const slotButton = await screen.findByTestId(`slot-${SLOT}`);
