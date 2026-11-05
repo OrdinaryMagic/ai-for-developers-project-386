@@ -14,7 +14,7 @@ export interface paths {
     /** @description Список предстоящих бронирований владельца. Без пагинации, ASC по `startsAt`, только будущие. */
     get: operations["Bookings_list"];
     put?: never;
-    /** @description Создать бронирование на свободный слот. Коды `SLOT_TAKEN`/`MEETING_TYPE_NOT_FOUND`/`OUTSIDE_WORKING_HOURS`/`OUTSIDE_WINDOW`/`MISMATCH_STEP` приходят в теле как `DomainError`; сервер выставляет HTTP 409/404/422 на уровне реализации. Слот, который уже начался, не бронируется: `OUTSIDE_WINDOW`. Идемпотентность: повтор того же `slotKey` возвращает `SLOT_TAKEN`. */
+    /** @description Создать бронирование на свободный слот. Возвращает `Booking` с HTTP 200. Доменные отказы приходят как `DomainError`: `MEETING_TYPE_NOT_FOUND` — 404, `SLOT_TAKEN` — 409, `OUTSIDE_WORKING_HOURS`/`OUTSIDE_WINDOW`/`MISMATCH_STEP` — 422. Слот, который уже начался, не бронируется: `OUTSIDE_WINDOW`. Идемпотентность: повтор того же `slotKey` возвращает `SLOT_TAKEN`. */
     post: operations["Bookings_create"];
     delete?: never;
     options?: never;
@@ -49,7 +49,7 @@ export interface paths {
     /** @description Список всех типов встреч. Возвращается плоским массивом без пагинации. */
     get: operations["MeetingTypes_list"];
     put?: never;
-    /** @description Создать тип встречи. Реальный HTTP-код — 200; доменная информация об успехе в теле. Клиентский SDK интерпретирует тело по типу `MeetingType`. */
+    /** @description Создать тип встречи. Возвращает `MeetingType` с HTTP 200. Длительность, не кратная `slotStepMinutes`, отклоняется с HTTP 422 и `DomainError` с кодом `INVALID_DURATION`. */
     post: operations["MeetingTypes_create"];
     delete?: never;
     options?: never;
@@ -64,7 +64,7 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** @description Получить конкретный тип встречи. Если не существует — тело содержит `DomainError` с кодом `MEETING_TYPE_NOT_FOUND`, HTTP-статус сервера — 404 на уровне реализации. */
+    /** @description Получить конкретный тип встречи. Возвращает `MeetingType` с HTTP 200. Если тип не существует — HTTP 404 с `DomainError` и кодом `MEETING_TYPE_NOT_FOUND`. */
     get: operations["MeetingTypes_getById"];
     put?: never;
     post?: never;
@@ -81,7 +81,7 @@ export interface paths {
       path?: never;
       cookie?: never;
     };
-    /** @description Получить свободные слоты типа встречи в текущем окне бронирования (14 дней). Слоты, которые уже начались, не отдаются: в сетку попадают только старты в будущем. Если тип встречи не существует — тело содержит `DomainError`. */
+    /** @description Получить свободные слоты типа встречи в текущем окне бронирования (14 дней). Возвращает `Availability` с HTTP 200. Слоты, которые уже начались, не отдаются: в сетку попадают только старты в будущем. Если тип встречи не существует — HTTP 404 с `DomainError` и кодом `MEETING_TYPE_NOT_FOUND`. */
     get: operations["MeetingTypes_availability"];
     put?: never;
     post?: never;
@@ -269,9 +269,34 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          "application/json":
-            | components["schemas"]["Booking"]
-            | components["schemas"]["DomainError"];
+          "application/json": components["schemas"]["Booking"];
+        };
+      };
+      /** @description The server cannot find the requested resource. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DomainError"];
+        };
+      };
+      /** @description The request conflicts with the current state of the server. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DomainError"];
+        };
+      };
+      /** @description Client error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DomainError"];
         };
       };
     };
@@ -338,6 +363,15 @@ export interface operations {
           "application/json": components["schemas"]["MeetingType"];
         };
       };
+      /** @description Client error */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DomainError"];
+        };
+      };
     };
   };
   MeetingTypes_getById: {
@@ -357,9 +391,16 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          "application/json":
-            | components["schemas"]["MeetingType"]
-            | components["schemas"]["DomainError"];
+          "application/json": components["schemas"]["MeetingType"];
+        };
+      };
+      /** @description The server cannot find the requested resource. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DomainError"];
         };
       };
     };
@@ -381,9 +422,16 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          "application/json":
-            | components["schemas"]["Availability"]
-            | components["schemas"]["DomainError"];
+          "application/json": components["schemas"]["Availability"];
+        };
+      };
+      /** @description The server cannot find the requested resource. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["DomainError"];
         };
       };
     };
