@@ -1,3 +1,7 @@
+import "@typespec/http";
+
+using TypeSpec.Http;
+
 namespace BookingApi;
 
 @doc("Стабильные коды доменных ошибок v1. Клиентский SDK разбирает их напрямую, без парсинга `message`.")
@@ -31,4 +35,19 @@ model DomainError {
 
   @doc("Человекочитаемое описание ситуации.")
   message: string;
+}
+
+model NotFoundDomainErrorResponse {
+  @statusCode statusCode: 404;
+  @body body: DomainError;
+}
+
+model ConflictDomainErrorResponse {
+  @statusCode statusCode: 409;
+  @body body: DomainError;
+}
+
+model UnprocessableDomainErrorResponse {
+  @statusCode statusCode: 422;
+  @body body: DomainError;
 }
