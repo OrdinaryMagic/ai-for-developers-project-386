@@ -57,6 +57,17 @@ test("guest happy path: select meeting type, pick slot, submit, see success UUID
   await expect(page.getByTestId("book-page")).toBeVisible();
   await expect(page.getByTestId("book-grid")).toBeVisible({ timeout: 10_000 });
 
+  // Сначала явно выбираем день, затем время только внутри него. Первый
+  // доступный день уже выбран по умолчанию, но клик фиксирует именно master-detail
+  // сценарий гостя, а не зависимость теста от default state.
+  const day = page.locator('[data-testid^="day-"][data-testid$="-button"]:enabled').first();
+  await expect(day).toBeVisible({ timeout: 10_000 });
+  const dayTestid = await day.getAttribute("data-testid");
+  if (!dayTestid) throw new Error("day testid is null");
+  const selectedDate = dayTestid.slice("day-".length, -"-button".length);
+  await day.click();
+  await expect(day).toHaveAttribute("aria-pressed", "true");
+
   // Свободные слоты — это `slot-{iso-datetime}`; первый видимый берём.
   // Сетка отдаёт только слоты в будущем (уже начавшиеся не предлагаются),
   // поэтому первый слот всегда валиден для записи.
@@ -66,6 +77,7 @@ test("guest happy path: select meeting type, pick slot, submit, see success UUID
   const slotTestid = await slot.getAttribute("data-testid");
   if (!slotTestid) throw new Error("slot testid is null");
   const startsAt = slotTestid.slice("slot-".length);
+  expect(startsAt.startsWith(`${selectedDate}T`)).toBe(true);
   await slot.click();
 
   // После клика по слоту ожидаем увидеть форму гостя (B4-тест).

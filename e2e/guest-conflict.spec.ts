@@ -16,16 +16,14 @@ import { seedMeetingType } from "./seed-meeting-type";
  * UI-flow гостя через главную страницу Vite. Никаких `page.route` или
  * перехвата трафика — только настоящий браузер по настоящему HTTP.
  *
- * Поведение бэкенда: `BookingStore.availability` исключает слот, если
- * запись пересекается с ним. После первого успешного `booking` слот
- * пропадает из сетки. Тест ожидает один из двух допустимых исходов:
- *   (a) слот остался в DOM, но submit даёт `data-testid="booking-error-slot-taken"`;
- *   (b) слот уже исключён из сетки (`getByTestId("slot-...").count() === 0`).
- * Оба варианта — валидное проявление конфликта; в owner-UX видим баннер
- * варианта (a), B4 отвечает за этот testid.
+ * Оба контекста открывают availability и выбирают один день и один слот
+ * до первого submit. Поэтому второй context сохраняет форму со stale slot
+ * после успешной записи первого и обязан получить видимый `SLOT_TAKEN`.
+ * Исчезновение слота из скрытой сетки не засчитывается как доказательство
+ * конфликта.
  *
  * Стратегия времени: «реальные часы», как в `guest-happy-path.spec.ts`;
- * слот берём первый попавшийся — окно 14 дней от сейчас.
+ * день и первый слот внутри него выбираются явно в обоих contexts.
  */
 test("guest conflict: two browser contexts POST the same slot; second sees SLOT_TAKEN", async ({
   browser,
@@ -49,7 +47,7 @@ test("guest conflict: two browser contexts POST the same slot; second sees SLOT_
     const pageB = await ctxB.newPage();
     pageB.setDefaultTimeout(10_000);
 
-    // --- Сторона A: бронирует слот через UI.
+    // --- Сторона A: явно выбирает день и слот, но ждёт B до submit.
     await pageA.goto("/");
     await expect(pageA.getByTestId("home-page")).toBeVisible();
     await expect(pageA.getByTestId("meeting-types-list")).toBeVisible({ timeout: 10_000 });
@@ -57,45 +55,53 @@ test("guest conflict: two browser contexts POST the same slot; second sees SLOT_
     await expect(pageA).toHaveURL(`/book/${meetingTypeId}`);
     await expect(pageA.getByTestId("book-grid")).toBeVisible({ timeout: 10_000 });
 
+    const dayA = pageA.locator('[data-testid^="day-"][data-testid$="-button"]:enabled').first();
+    await expect(dayA).toBeVisible({ timeout: 10_000 });
+    const dayTestid = await dayA.getAttribute("data-testid");
+    if (!dayTestid) throw new Error("day testid is null");
+    const selectedDate = dayTestid.slice("day-".length, -"-button".length);
+    await dayA.click();
+    await expect(dayA).toHaveAttribute("aria-pressed", "true");
+
     const slotA = pageA.getByTestId(/^slot-/).first();
     await expect(slotA).toBeVisible({ timeout: 10_000 });
-    // testid ловим до клика; формат — `slot-<iso-datetime>`.
     const slotTestid = await slotA.getAttribute("data-testid");
     if (!slotTestid) throw new Error("slot testid is null");
+    expect(slotTestid.slice("slot-".length).startsWith(`${selectedDate}T`)).toBe(true);
     await slotA.click();
 
     await expect(pageA.getByTestId("booking-form")).toBeVisible({ timeout: 10_000 });
     await pageA.getByTestId("booking-name").fill("Алиса");
     await pageA.getByTestId("booking-email").fill("alice@example.com");
-    await pageA.getByTestId("booking-submit").click();
 
-    await expect(pageA.getByTestId("booking-success")).toBeVisible({ timeout: 10_000 });
-    await expect(pageA.getByTestId("booking-success-uuid")).toContainText(
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
-    );
-
-    // --- Сторона B: открывает ту же страницу. Слот либо пропал из сетки
-    // (вариант b), либо ещё стоит, но submit вернёт ошибку (вариант a).
+    // --- Сторона B: до записи A выбирает тот же день и тот же слот.
     await pageB.goto("/");
     await expect(pageB.getByTestId("meeting-types-list")).toBeVisible({ timeout: 10_000 });
     await pageB.getByTestId(`meeting-type-card-${meetingTypeId}`).click();
     await expect(pageB).toHaveURL(`/book/${meetingTypeId}`);
     await expect(pageB.getByTestId("book-grid")).toBeVisible({ timeout: 10_000 });
 
+    const dayB = pageB.getByTestId(dayTestid);
+    await expect(dayB).toBeEnabled();
+    await dayB.click();
+    await expect(dayB).toHaveAttribute("aria-pressed", "true");
     const slotB = pageB.getByTestId(slotTestid);
-    if ((await slotB.count()) === 0) {
-      // (b) Слот уже исключён из сетки — это тоже валидное проявление
-      // SLOT_TAKEN. Тест зелёный без дополнительных действий.
-      return;
-    }
-
-    // (a) Слот остался — кликаем и пытаемся забронировать. Ждём баннер
-    // `booking-error-slot-taken` (см. B4 UI; тикет #34 ссылается на
-    // этот testid в acceptance-критериях).
-    await slotB.first().click();
+    await expect(slotB).toBeVisible({ timeout: 10_000 });
+    await slotB.click();
     await expect(pageB.getByTestId("booking-form")).toBeVisible({ timeout: 10_000 });
+    await expect(pageB.getByTestId("booking-prefilled-slot-iso")).toHaveValue(
+      slotTestid.slice("slot-".length),
+    );
     await pageB.getByTestId("booking-name").fill("Борис");
     await pageB.getByTestId("booking-email").fill("boris@example.com");
+
+    // --- A создаёт Booking, затем stale-форма B получает реальный 409.
+    await pageA.getByTestId("booking-submit").click();
+    await expect(pageA.getByTestId("booking-success")).toBeVisible({ timeout: 10_000 });
+    await expect(pageA.getByTestId("booking-success-uuid")).toContainText(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+    );
+
     await pageB.getByTestId("booking-submit").click();
     await expect(pageB.getByTestId("booking-error-slot-taken")).toBeVisible({ timeout: 10_000 });
   } finally {
