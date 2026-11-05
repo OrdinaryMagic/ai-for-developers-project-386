@@ -66,6 +66,13 @@ export interface Owner {
 }
 
 /**
+ * ISO-день недели: 1 — понедельник, 7 — воскресенье.
+ * @minimum 1
+ * @maximum 7
+ */
+export type WorkingDay = number;
+
+/**
  * Рабочие часы владельца внутри суток, выражены в TZ владельца.
  */
 export interface WorkingHours {
@@ -76,7 +83,7 @@ export interface WorkingHours {
 }
 
 /**
- * Конфигурация владельца и его правил: TZ, рабочие часы, шаг слотов, длина окна бронирования.
+ * Конфигурация владельца и его правил: TZ, рабочие дни и часы, шаг слотов, длина окна бронирования.
  */
 export interface Configuration {
   /** Имя и TZ владельца календаря. */
@@ -85,6 +92,12 @@ export interface Configuration {
   windowDays: number;
   /** Шаг между соседними возможными стартами слотов в минутах (v1: 30). */
   slotStepMinutes: number;
+  /**
+   * Рабочие дни владельца: уникальные ISO-дни недели 1–7, по умолчанию 1,2,3,4,5.
+   * @minItems 1
+   * @maxItems 7
+   */
+  workingDays: WorkingDay[];
   /** Рабочие часы владельца в его TZ. */
   workingHours: WorkingHours;
 }

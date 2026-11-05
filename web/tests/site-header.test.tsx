@@ -34,6 +34,7 @@ function mockApi(): void {
         owner: { name: "Owner", timezone: "Europe/Moscow" },
         windowDays: 14,
         slotStepMinutes: 30,
+        workingDays: [1, 2, 3, 4, 5],
         workingHours: { start: "09:00", end: "18:00" },
       });
     }

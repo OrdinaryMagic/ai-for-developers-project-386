@@ -8,6 +8,7 @@ import {
   meetingTypesCreate,
   meetingTypesGetById,
   meetingTypesList,
+  type Configuration,
 } from "@/api/sdk";
 
 const BOOKING = {
@@ -27,6 +28,14 @@ const MEETING_TYPE = {
   durationMinutes: 30,
 };
 
+const CONFIGURATION = {
+  owner: { name: "Owner", timezone: "Europe/Moscow" },
+  windowDays: 14,
+  slotStepMinutes: 30,
+  workingDays: [1, 2, 3, 4, 5],
+  workingHours: { start: "09:00", end: "18:00" },
+} satisfies Configuration;
+
 const READ_OPERATIONS = [
   {
     name: "bookingsList",
@@ -38,12 +47,7 @@ const READ_OPERATIONS = [
     name: "configGetConfig",
     execute: () => configGetConfig(),
     url: "/api/config",
-    data: {
-      owner: { name: "Owner", timezone: "Europe/Moscow" },
-      windowDays: 14,
-      slotStepMinutes: 30,
-      workingHours: { start: "09:00", end: "18:00" },
-    },
+    data: CONFIGURATION,
   },
   {
     name: "meetingTypesList",

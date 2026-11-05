@@ -80,6 +80,7 @@ export default defineRailway(() => {
       OWNER_TIMEZONE: "Europe/Moscow",
       OWNER_WINDOW_DAYS: "14",
       OWNER_SLOT_STEP_MINUTES: "30",
+      OWNER_WORKING_DAYS: "1,2,3,4,5",
       OWNER_WORKING_HOURS_START: "09:00",
       OWNER_WORKING_HOURS_END: "18:00",
     },

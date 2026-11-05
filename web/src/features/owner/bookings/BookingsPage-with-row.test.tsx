@@ -40,6 +40,7 @@ function mockFetch(bookings: unknown, timezone = "Europe/Moscow"): void {
             owner: { name: "Owner", timezone },
             windowDays: 14,
             slotStepMinutes: 30,
+            workingDays: [1, 2, 3, 4, 5],
             workingHours: { start: "09:00", end: "18:00" },
           }),
           { status: 200, headers: { "Content-Type": "application/json" } },

@@ -14,7 +14,10 @@
 import type { Availability, AvailabilityDay, Booking, MeetingType } from "../../src/types.js";
 
 /** Описание элемента для свойств типа `array`. */
-export type ManifestArrayItems = { kind: "string" } | { kind: "ref"; ref: string };
+export type ManifestArrayItems =
+  | { kind: "string" }
+  | { kind: "integer"; minimum?: number; maximum?: number }
+  | { kind: "ref"; ref: string };
 
 /** Описание одного свойства объекта. */
 export type ManifestProperty =
@@ -101,11 +104,12 @@ export const typesManifest: Record<string, ManifestSchema> = {
   },
   Configuration: {
     kind: "object",
-    required: ["owner", "windowDays", "slotStepMinutes", "workingHours"],
+    required: ["owner", "windowDays", "slotStepMinutes", "workingDays", "workingHours"],
     properties: {
       owner: { kind: "ref", ref: "Owner" },
       windowDays: { kind: "integer" },
       slotStepMinutes: { kind: "integer" },
+      workingDays: { kind: "array", items: { kind: "integer", minimum: 1, maximum: 7 } },
       workingHours: { kind: "ref", ref: "WorkingHours" },
     },
   },
