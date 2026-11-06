@@ -9,6 +9,7 @@ const sampleConfig: OwnerConfig = {
   owner: { name: "Owner", timezone: tz },
   windowDays: 14,
   slotStepMinutes: 30,
+  workingDays: [1, 2, 3, 4, 5],
   workingHours: { start: "09:00", end: "18:00" },
 };
 
@@ -29,8 +30,11 @@ afterEach(async () => {
   }
 });
 
-async function makeApp(): Promise<{ server: FastifyInstance; meetingTypeId: string }> {
-  const server = await buildApp({ config: sampleConfig, clock: fixedClock });
+async function makeApp(
+  config: OwnerConfig = sampleConfig,
+  clock: Clock = fixedClock,
+): Promise<{ server: FastifyInstance; meetingTypeId: string }> {
+  const server = await buildApp({ config, clock });
   serverToClose = server;
   const created = await server.inject({
     method: "POST",
@@ -123,6 +127,91 @@ describe("POST /bookings", () => {
     });
     expect(res.statusCode).toBe(422);
     expect(res.json().code).toBe("OUTSIDE_WORKING_HOURS");
+  });
+
+  it("возвращает OUTSIDE_WORKING_HOURS для прямой записи в нерабочий день (422)", async () => {
+    const { server, meetingTypeId } = await makeApp();
+    const res = await server.inject({
+      method: "POST",
+      url: "/bookings",
+      payload: {
+        meetingTypeId,
+        startsAt: "2025-11-08T10:00:00+03:00",
+        guestName: "Weekend",
+        guestEmail: "weekend@x.test",
+      },
+    });
+    expect(res.statusCode).toBe(422);
+    expect(res.json()).toMatchObject({ statusCode: 422, code: "OUTSIDE_WORKING_HOURS" });
+  });
+
+  it("разрешает субботу и воскресенье при пользовательском workingDays", async () => {
+    const { server, meetingTypeId } = await makeApp({ ...sampleConfig, workingDays: [6, 7] });
+
+    for (const startsAt of ["2025-11-08T10:00:00+03:00", "2025-11-09T10:00:00+03:00"]) {
+      const res = await server.inject({
+        method: "POST",
+        url: "/bookings",
+        payload: {
+          meetingTypeId,
+          startsAt,
+          guestName: "Weekend",
+          guestEmail: "weekend@x.test",
+        },
+      });
+      expect(res.statusCode).toBe(200);
+    }
+
+    const weekday = await server.inject({
+      method: "POST",
+      url: "/bookings",
+      payload: {
+        meetingTypeId,
+        startsAt: "2025-11-04T10:00:00+03:00",
+        guestName: "Weekday",
+        guestEmail: "weekday@x.test",
+      },
+    });
+    expect(weekday.statusCode).toBe(422);
+    expect(weekday.json().code).toBe("OUTSIDE_WORKING_HOURS");
+  });
+
+  it("определяет рабочий день в TZ владельца, а не в UTC", async () => {
+    const timezone = "Pacific/Auckland";
+    const config: OwnerConfig = {
+      ...sampleConfig,
+      owner: { name: "Owner", timezone },
+    };
+    const clock: Clock = () => DateTime.fromISO("2025-11-03T08:00:00", { zone: timezone });
+    const { server, meetingTypeId } = await makeApp(config, clock);
+
+    // UTC ещё воскресенье, но в Auckland уже понедельник 09:00 — рабочий слот.
+    const monday = await server.inject({
+      method: "POST",
+      url: "/bookings",
+      payload: {
+        meetingTypeId,
+        startsAt: "2025-11-02T20:00:00Z",
+        guestName: "Monday",
+        guestEmail: "monday@x.test",
+      },
+    });
+    expect(monday.statusCode).toBe(200);
+    expect(monday.json().startsAt).toBe("2025-11-03T09:00:00+13:00");
+
+    // UTC ещё пятница, но в Auckland уже суббота 09:00 — нерабочий день.
+    const saturday = await server.inject({
+      method: "POST",
+      url: "/bookings",
+      payload: {
+        meetingTypeId,
+        startsAt: "2025-11-07T20:00:00Z",
+        guestName: "Saturday",
+        guestEmail: "saturday@x.test",
+      },
+    });
+    expect(saturday.statusCode).toBe(422);
+    expect(saturday.json().code).toBe("OUTSIDE_WORKING_HOURS");
   });
 
   it("возвращает OUTSIDE_WINDOW для слота до полуночи сегодня (422)", async () => {
@@ -322,6 +411,55 @@ describe("GET /meeting-types/:id/availability", () => {
     expect(body.days[0].slots).toHaveLength(7);
     // Будущие дни — полный рабочий день.
     expect(body.days[1].slots).toHaveLength(18);
+  });
+
+  it("сохраняет 14 календарных дней, а нерабочие дни отдаёт с пустыми slots", async () => {
+    const { server, meetingTypeId } = await makeApp();
+    const res = await server.inject({
+      method: "GET",
+      url: `/meeting-types/${meetingTypeId}/availability`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const days = res.json().days;
+    expect(days.map((day: { date: string }) => day.date)).toEqual([
+      "2025-11-03",
+      "2025-11-04",
+      "2025-11-05",
+      "2025-11-06",
+      "2025-11-07",
+      "2025-11-08",
+      "2025-11-09",
+      "2025-11-10",
+      "2025-11-11",
+      "2025-11-12",
+      "2025-11-13",
+      "2025-11-14",
+      "2025-11-15",
+      "2025-11-16",
+    ]);
+    expect(days.find((day: { date: string }) => day.date === "2025-11-08").slots).toEqual([]);
+    expect(days.find((day: { date: string }) => day.date === "2025-11-09").slots).toEqual([]);
+    expect(days.find((day: { date: string }) => day.date === "2025-11-10").slots).not.toEqual([]);
+  });
+
+  it("с пользовательскими выходными отдаёт слоты в субботу и воскресенье, но не в будни", async () => {
+    const { server, meetingTypeId } = await makeApp({ ...sampleConfig, workingDays: [6, 7] });
+    const res = await server.inject({
+      method: "GET",
+      url: `/meeting-types/${meetingTypeId}/availability`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    const days = res.json().days;
+    expect(days).toHaveLength(14);
+    expect(days.find((day: { date: string }) => day.date === "2025-11-04").slots).toEqual([]);
+    expect(days.find((day: { date: string }) => day.date === "2025-11-08").slots).toContain(
+      "2025-11-08T09:00:00+03:00",
+    );
+    expect(days.find((day: { date: string }) => day.date === "2025-11-09").slots).toContain(
+      "2025-11-09T09:00:00+03:00",
+    );
   });
 
   it("исключает занятые слоты (cross-type тоже)", async () => {

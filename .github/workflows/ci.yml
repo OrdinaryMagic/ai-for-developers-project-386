@@ -29,9 +29,10 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Reads mise.toml, installs the pinned versions of the tools (Node 22,
+      # Reads mise.toml, installs the pinned versions of the tools (Node 22.23.4,
       # hk, npm:@commitlint/cli) and runs the postinstall hook which does
-      # `npm install` and `hk install` (git hooks). Built-in cache keeps the
+      # root `npm install` and `hk install` (git hooks). Web dependencies are
+      # installed explicitly below. Built-in cache keeps the
       # tool-install layer fast.
       - uses: jdx/mise-action@v5
         with:
@@ -54,6 +55,27 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # Lockfile-проверка для обоих независимых npm-пакетов. mise postinstall
+      # ставит только root-зависимости, поэтому web нужен отдельный npm ci.
+      - name: Install root npm deps
+        run: npm ci --no-audit --no-fund
+
+      - name: Install web workspace deps
+        run: npm ci --prefix web --no-audit --no-fund
+
+      # Browser cache и установка Chromium остаются в canonical check-job:
+      # `mise run check` ниже сам запускает Playwright как часть полного gate.
+      - name: Restore Playwright browser cache
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-browsers-${{ runner.os }}-${{ hashFiles('package-lock.json', 'web/package-lock.json') }}
+          restore-keys: |
+            playwright-browsers-${{ runner.os }}-
+
+      - name: Install Playwright browsers (chromium)
+        run: npm run test:e2e:install
+
       # TypeSpec → OpenAPI регенерируется перед всеми проверками. Если
       # закоммиченный openapi.yaml отличается от того, что генерируется из
       # spec/*.tsp, CI падает — значит, кто-то отредактировал openapi.yaml
@@ -68,11 +90,11 @@ jobs:
             exit 1
           fi
 
-      # openapi.yaml → TS-типы для фронта. Шаг бежит ПОСЛЕ Regenerate OpenAPI,
-      # чтобы любой drift, прилетевший из spec/*.tsp, уже был зафиксирован в
-      # openapi.yaml до регенерации SDK. Если коммитированный web/src/api/sdk.ts
-      # отличается от того, что выдаёт `mise run gen:sdk`, CI падает — см.
-      # AGENTS.md rule #9 (web/src/api/sdk.ts is a generated artifact).
+      # openapi.yaml → single-file Orval SDK (API-типы + fetch endpoint-функции).
+      # Шаг бежит ПОСЛЕ Regenerate OpenAPI, чтобы любой drift из spec/*.tsp уже
+      # был зафиксирован в openapi.yaml. Если закоммиченный web/src/api/sdk.ts
+      # отличается от результата pinned `mise run gen:sdk`, CI падает — см.
+      # AGENTS.md rules #9–11 (SDK is a generated artifact and the only web runtime).
       - name: Regenerate SDK and verify it is up-to-date
         run: |
           mise run gen:sdk
@@ -83,88 +105,13 @@ jobs:
           fi
 
       - name: Run all project checks
-        run: mise run check
-
-  # Wave C карты #26 — тикет #35. Прогоняет Playwright e2e на реальных
-  # Fastify + Vite (см. `playwright.config.ts` → `webServer`-цепочка:
-  # `npm run build --silent && node dist/server.js` на E2E_API_PORT=3030
-  # и `npm --prefix web run dev` на 5173). Никаких моков API.
-  #
-  # `needs: check` (strict): если `mise run check` ломается, e2e
-  # пропускается — экономит ~1 минуту установки браузера при заведомо
-  # сломанных билдах. Триггер `on: push: branches: ['**']` уже стоит
-  # выше, так что merge в `main` запускает оба job'а (`check` + `e2e`).
-  e2e:
-    name: End-to-end tests (Playwright)
-    needs: check
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v7
-
-      # mise поставит инструменты ([tools] в mise.toml: node 22, hk,
-      # commitlint) и через postinstall дернет `npm install`. Кэш
-      # инструментов идёт через встроенный cache jdx/mise-action.
-      - uses: jdx/mise-action@v5
-        with:
-          cache: true
-          install_args: ""
-
-      # `node-version: 22` совпадает с `engines.node` в package.json и
-      # `node = "22"` в mise.toml. Отдельный step с `@v6` нужен только
-      # для явного объявления версии в логах; npm-кэш берёт на себя
-      # сам jdx/mise-action built-in cache, поэтому `cache: npm` тут
-      # НЕ включаем — иначе будет конфликт с двумя независимыми кэшами.
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: 22
-
-      # Кэшируем ТОЛЬКО браузер (chromium ~150 MB), не npm-пакеты —
-      # те уже закрыты mise-cache. restore-keys подхватывает частичное
-      # совпадение, когда package-lock.json слегка поменялся.
-      - name: Restore Playwright browser cache
-        uses: actions/cache@v5
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-browsers-${{ runner.os }}-${{ hashFiles('package-lock.json', 'web/package-lock.json') }}
-          restore-keys: |
-            playwright-browsers-${{ runner.os }}-
-
-      # `npm ci` (а не install) — строгая проверка lockfile, ровно то,
-      # что нужно для CI. Кэш от mise остаётся, но ci — fail-fast на
-      # любом drift между lockfile и пакетом.
-      - name: Install root npm deps
-        run: npm ci --no-audit --no-fund
-
-      # web — отдельный workspace (правило #10): свой package.json /
-      # lockfile. mise postinstall ставит ТОЛЬКО root, поэтому web
-      # нужен свой ci — иначе `npm --prefix web run dev` в webServer
-      # пойдёт по пустому node_modules.
-      - name: Install web workspace deps
-        run: npm ci --prefix web --no-audit --no-fund
-
-      # Только chromium: e2e спецификации (см. `playwright.config.ts`
-      # → `projects[chromium]`) гоняются в Desktop Chrome. `--with-deps`
-      # подтянет системные библиотеки (libnss3 и т.д.) на ubuntu-latest.
-      - name: Install Playwright browsers (chromium)
-        run: npx playwright install --with-deps chromium
-
-      # `playwright.config.ts::webServer` сам поднимает Fastify на
-      # E2E_API_PORT=3030 (через `npm run build --silent && PORT=...
-      # node dist/server.js`) И Vite-dev на 5173 (через
-      # `npm --prefix web run dev`) и дожидается готовности обоих
-      # (`url` для каждого сервиса). Нам нужно только прогнать сами
-      # тесты; webServer auto-start/stop управляет процессами.
-      - name: Run end-to-end tests
         env:
           CI: "1"
           E2E_API_PORT: "3030"
-        run: npm run test:e2e
+        run: mise run check
 
-      # Артефакты для отладки упавших прогонов. `list` reporter в
-      # CI (см. playwright.config.ts): при зелёном прогоне директории
-      # может не быть — игнорируем через `if-no-files-found: ignore`.
+      # Единый upload для любого падения check-job; отсутствующие артефакты
+      # на ранних шагах не маскируют исходную ошибку.
       - name: Upload Playwright report on failure
         if: failure()
         uses: actions/upload-artifact@v5
@@ -183,9 +130,8 @@ jobs:
   # срабатывают runtime ENV'и (`HOST=0.0.0.0`, prod-only deps,
   # `CMD ["node", "dist/server.js"]`).
   #
-  # `needs: check` (без `: e2e`) — намеренно: e2e флакает на браузерах,
-  # и docker-job должен при этом всё равно бежать, чтобы catching'ить
-  # поломки Dockerfile отдельно от catching'а поломок Playwright.
+  # `needs: check` — Docker smoke запускается только после полного project
+  # gate: backend/web checks, production-сборки web и Playwright e2e.
   docker:
     name: Build Docker image + smoke test
     needs: check
@@ -194,8 +140,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # mise ставит те же тулзы, что и в check/e2e ([tools] в mise.toml:
-      # node 22, hk, commitlint). Кэш jdx/mise-action переиспользует
+      # mise ставит те же тулзы, что и в check ([tools] в mise.toml:
+      # node 22.23.4, hk, commitlint). Кэш jdx/mise-action переиспользует
       # слой установки инструментов между job'ами.
       - uses: jdx/mise-action@v5
         with:

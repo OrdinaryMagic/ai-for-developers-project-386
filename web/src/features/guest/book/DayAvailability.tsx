@@ -1,6 +1,8 @@
 import { Badge } from "@/components/ui/badge";
 import type { AvailabilityDay } from "@/features/guest/api";
 import { SlotButton } from "@/features/guest/book/SlotButton";
+import { useOwnerTimezone } from "@/features/owner/bookings/OwnerTimezoneContext";
+import { formatDay } from "@/lib/dateTime";
 
 export interface DayAvailabilityProps {
   day: AvailabilityDay;
@@ -12,14 +14,16 @@ export interface DayAvailabilityProps {
 }
 
 export function DayAvailability({ day, onSlotClick }: DayAvailabilityProps) {
-  const slotsCount = day.slots.length;
+  const { timezone } = useOwnerTimezone();
+  const slots = day.slots.slice(0, 18);
+  const slotsCount = slots.length;
   return (
     <section
       data-testid={`day-${day.date}`}
       className="rounded-md border bg-card text-card-foreground p-4"
     >
       <header className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-medium">{day.date}</h3>
+        <h3 className="text-sm font-medium">{formatDay(day.date, timezone)}</h3>
         <Badge variant="secondary" data-testid={`day-${day.date}-count`}>
           {slotsCount}
         </Badge>
@@ -31,7 +35,7 @@ export function DayAvailability({ day, onSlotClick }: DayAvailabilityProps) {
         </p>
       ) : (
         <div data-testid="day-slots" className="flex flex-wrap gap-2">
-          {day.slots.map((startsAt) => (
+          {slots.map((startsAt) => (
             <SlotButton
               key={startsAt}
               startsAt={startsAt}

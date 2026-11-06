@@ -20,10 +20,18 @@ const sampleAvailability = {
   ],
 };
 
+const meetingTypeFixture = {
+  id: MEETING_TYPE_ID,
+  name: "Консультация",
+  description: "Знакомство",
+  durationMinutes: 30,
+};
+
 const configResponse = {
   owner: { name: "Owner", timezone: "Europe/Moscow" },
   windowDays: 14,
   slotStepMinutes: 30,
+  workingDays: [1, 2, 3, 4, 5],
   workingHours: { start: "09:00", end: "18:00" },
 };
 
@@ -54,6 +62,14 @@ function setupFetch(handler: (url: string, init: RequestInit | undefined) => Res
     if (url === `/api/meeting-types/${MEETING_TYPE_ID}/availability`) {
       return Promise.resolve(
         new Response(JSON.stringify(sampleAvailability), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    }
+    if (url === `/api/meeting-types/${MEETING_TYPE_ID}`) {
+      return Promise.resolve(
+        new Response(JSON.stringify(meetingTypeFixture), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         }),
@@ -121,7 +137,9 @@ describe("BookingForm — guests conflict + retry (#33)", () => {
     renderAppAt(`/book/${MEETING_TYPE_ID}`);
 
     await waitFor(() => {
-      expect(fetchSpy).toHaveBeenCalledWith(`/api/meeting-types/${MEETING_TYPE_ID}/availability`);
+      expect(fetchSpy).toHaveBeenCalledWith(`/api/meeting-types/${MEETING_TYPE_ID}/availability`, {
+        method: "GET",
+      });
     });
 
     const slotButton = await screen.findByTestId(`slot-${SLOT}`);
@@ -205,6 +223,35 @@ describe("BookingForm — guests conflict + retry (#33)", () => {
     await act(async () => {});
   });
 
+  it.each([
+    ["пустое тело", () => new Response(null, { status: 200 })],
+    [
+      "невалидный JSON",
+      () =>
+        new Response("{", {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    ],
+  ])("200 с ответом '%s' не принимается за успешную бронь", async (_label, response) => {
+    const user = userEvent.setup();
+    setupFetch(response);
+
+    renderAppAt(`/book/${MEETING_TYPE_ID}`);
+
+    await user.click(await screen.findByTestId(`slot-${SLOT}`));
+    await user.type(await screen.findByTestId("booking-name"), "Иван");
+    await user.type(screen.getByTestId("booking-email"), "i@e.co");
+    await user.click(screen.getByTestId("booking-submit"));
+
+    expect(await screen.findByTestId("booking-error")).toHaveTextContent(
+      "Не удалось отправить запрос",
+    );
+    expect(screen.queryByTestId("booking-success")).not.toBeInTheDocument();
+
+    await act(async () => {});
+  });
+
   it("cancel возвращает к сетке слотов без потери availability", async () => {
     const user = userEvent.setup();
     const fetchSpy = setupFetch(() => {
@@ -214,7 +261,9 @@ describe("BookingForm — guests conflict + retry (#33)", () => {
     renderAppAt(`/book/${MEETING_TYPE_ID}`);
 
     await waitFor(() => {
-      expect(fetchSpy).toHaveBeenCalledWith(`/api/meeting-types/${MEETING_TYPE_ID}/availability`);
+      expect(fetchSpy).toHaveBeenCalledWith(`/api/meeting-types/${MEETING_TYPE_ID}/availability`, {
+        method: "GET",
+      });
     });
 
     await user.click(await screen.findByTestId(`slot-${SLOT}`));

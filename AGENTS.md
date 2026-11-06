@@ -4,7 +4,7 @@
 
 ## Правила
 
-1. **Все проверки одной командой — `make check`** (= `mise run check`): typecheck → lint → format:check → test, fail-fast. CI гоняет это на каждый push (`.github/workflows/ci.yml`). Не подменять отдельными npm-скриптами.
+1. **Все проверки одной командой — `make check`** (= `mise run check`): backend typecheck → web typecheck → repo-wide lint → repo-wide format:check → backend unit-тесты → web unit-тесты → production-сборка web → Playwright e2e. Шаги выполняются последовательно с fail-fast; e2e поднимает собственные backend/Vite-серверы без reuse. CI гоняет ту же canonical-задачу на каждый push (`.github/workflows/ci.yml`). Не подменять отдельными npm-скриптами.
 2. **Формат коммитов — Conventional Commits.** Допустимые типы (по `@commitlint/config-conventional`): `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`. Шаблон: `type(scope): subject`. Хук `commit-msg` (commitlint, `commitlint.config.js`) блокирует коммит при нарушении. Пропустить разово: `HK=0 git commit ...`.
 3. **Не править `.github/workflows/hexlet-check.yml`** — это Hexlet-платформа; баннер в файле запрещает. Свой CI в `.github/workflows/ci.yml`.
 4. **`tsc` не проверяет тесты.** `tsconfig.json` исключает `test/`; типы тестов — зона ответственности vitest.
@@ -12,26 +12,20 @@
 6. **Демон `make daemon` требует один раз `mise use -g pitchfork`** — без этого шаг падает.
 7. **Не «причёсывать» массивы в `mise.toml`.** `oxfmt` и `mise fmt` (шаги hk по `*.toml`) расходятся для массивов > 2 элементов: один сворачивает в одну строку, другой разворачивает в мультилайн. Для > 2 шагов использовать одну строку `run = "a && b && c"` (см. `[tasks.check]`).
 8. **Коммит реализации ссылается на тикет, который он делает.** В subject после описания — `#NN` в скобках, например `feat: запись на свободный слот (#12)`. GitHub рендерит номер как ссылку на задачу; по `git log` видно, какой коммит какую задачу делал. Связь работает в обе стороны — в карточке тикета виден обратный линк на коммит. Reference `#NN` сам по себе тикет не закрывает: для авто-закрытия при merge PR добавляйте `Closes #NN` (или `Fixes #NN`) в body коммита или в PR description. Ссылка обязательна, если коммит реализует конкретный тикет; для chore/docs без тикета правило не применяется.
-9. **Не править руками четыре generated артефакта: `openapi.yaml`, сгенерированный SDK, `CHANGELOG.md` и `package.json#version`.** Каждый из них — продукция своего инструмента:
-   - `openapi.yaml` регенерируется из `spec/*.tsp` через `mise run spec`; CI шаг «Regenerate OpenAPI» в `.github/workflows/ci.yml` падает, если закоммиченный файл отличается от свежесгенерированного.
-   - SDK — это `web/src/api/sdk.ts`, регенерируется из `openapi.yaml` через `mise run gen:sdk` (зависит от `spec`); CI шаг «Regenerate SDK and verify» в `.github/workflows/ci.yml` падает, если коммитированный `web/src/api/sdk.ts` отличается от свежесгенерированного. Источник истины — `spec/*.tsp` (через `openapi.yaml`); править руками типы в SDK запрещено так же, как для `openapi.yaml` — следующий прогон `gen:sdk` всё сотрёт.
-   - `CHANGELOG.md` и `package.json#version` — продукция `release-please` (см. ADR-0003 и `.github/workflows/release-please.yml`); единственный путь к ним — merge release-PR от `release-please[bot]`. `CHANGELOG.md` дополнительно внесён в `ignorePatterns` `.oxfmtrc.json`, чтобы oxfmt не пытался его переформатировать.
-
-   Для всех четырёх правило одно: меняйте источник (спектр OpenAPI, `spec/*.tsp` для SDK, Conventional Commits в истории), а файл-продукцию не трогайте — следующий прогон соответствующего инструмента или CI-чек перепишет его сам.
-
-10. **Web-фронтенд живёт в поддиректории `web/`, не дублирует доменные/API типы вручную.** Запрещает любое ручное дублирование API-типов и runtime-обвязок в коде вне `web/src/api/sdk.ts`. `web/` — отдельный workspace со своим `package.json` / `tsconfig.json` / `vite.config.ts`; он не подменяет существующий backend в `src/` и не противопоставляется корневому окружению — правила выше этого документа продолжают действовать и для фронтенд-инженеров (перекрёстная сводка — в `README.md`, раздел «UI / E2E»).
-11. **Сгенерированный SDK в `web/src/api/sdk.ts` — единственный источник API-типов на клиенте; ручные типы API и ручные fetch-обёртки запрещены.** SDK генерируется из `openapi.yaml` через `npm run gen:sdk` (генератор — `openapi-typescript@7.13.0`, тикет #29); следующая регенерация и CI-чек перепишут ручные правки (см. rule #9). Запрещены любые ручные `interface Foo extends Omit<Domain, "id">` в `web/src/**`, ручные `fetch(url)`-обёртки и любое другое дублирование контракта в обход SDK.
+9. **Generated артефакты не редактировать вручную:** `openapi.yaml` и `web/src/api/sdk.ts` обновляются только из `spec/*.tsp` командами `mise run spec` / `mise run gen:sdk`; CI проверяет их воспроизводимость. `CHANGELOG.md` и `package.json#version` меняются только через merge release-PR от `release-please[bot]`. Правьте источник (TypeSpec или Conventional Commits), а не результат генерации.
+10. **Frontend живёт в `web/`** — отдельном npm-пакете со своими конфигами; он не заменяет backend в `src/`, и все правила репозитория действуют там тоже. Доменные и API-типы вручную не дублируются (см. README → «UI / E2E»).
+11. **`web/src/api/sdk.ts` — единственный клиентский API-контракт и HTTP-runtime.** Закреплённый Orval генерирует типы и endpoint-функции (`fetch`, single-file, `baseUrl: "/api"`); все запросы идут через них. В production-коде вне SDK запрещены ручные API-типы, endpoint URL, `fetch`/`JSON.stringify`, HTTP/JSON helpers и custom mutators. Контракт меняется через `spec/*.tsp` и `npm run gen:sdk` (см. rule #9).
 
 ## Команды
 
-- `make install` — установка инструментов и зависимостей (mise postinstall-хук сам прогоняет `npm install` + `hk install`).
+- `make install` — установка инструментов и root/web npm-зависимостей (mise postinstall-хук также прогоняет root `npm install` + `hk install`). Перед первым `make check` установить Chromium и его системные зависимости: `npm run test:e2e:install` (на Linux может запросить sudo).
 - `make dev` — watch-сервер на `127.0.0.1:3000`. `make start` — прод (`build` → `node dist/server.js`).
 - Отдельная проверка: `mise run typecheck|lint|format|test`. Watch тестов: `npm run test:watch`. Один тест-файл: `npx vitest run test/path/file.test.ts`.
 - По всему репо как CI: `hk check --all` / `hk fix --all`. Очистка: `make clean`.
 
 ## Контекст
 
-- Вход: `src/server.ts` → `buildApp()` из `src/app.ts`, маршруты в `src/routes/*.ts`. Сейчас только `GET /` и `GET /health`.
+- Вход: `src/server.ts` → `buildApp()` из `src/app.ts`, маршруты регистрируются из `src/routes/*.ts`. Канонические paths, операции и схемы задаются в `spec/*.tsp`; их актуальный список здесь не дублируется.
 - Тесты через `app.inject({ method, url })` — Fastify прогоняет запросы in-process, порт биндить не надо.
 - `[env]` в `mise.toml` (`HOST`, `PORT`, `NODE_ENV`) подхватывается автоматически — отдельный `.env` под эти переменные не нужен.
 

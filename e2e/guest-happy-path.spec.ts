@@ -1,4 +1,6 @@
-import { test, expect, request as pwRequest } from "@playwright/test";
+import { test, expect } from "@playwright/test";
+import { seedMeetingType } from "./seed-meeting-type";
+import { selectBookingSlot } from "./select-booking-slot";
 
 /**
  * C1 / Wave C — карта #26: сквозной happy-path сценарий гостя
@@ -14,18 +16,15 @@ import { test, expect, request as pwRequest } from "@playwright/test";
  * Стратегия времени: сервер использует «реальные часы» (`DateTime.now()` в TZ
  * владельца). Под Vite proxy `/api/*` цепляется к e2e-бэкенду (порт E2E_API_PORT
  * = 3030 по умолчанию), который стартует свежим в `playwright.config.ts`
- * через `webServer` — состояние in-memory пустое при заходе теста, поэтому
- * один тип встречи seed'ится через прямой POST в бэкенд (ничего не мокается:
- * это тот же HTTP-эндпоинт, который дёргает UI). Параметры совпадают с
- * дефолтами `OwnerConfig`: `slotStepMinutes=30`, `windowDays=14`,
- * `workingHours=09:00–18:00 Europe/Moscow`.
+ * через `webServer`. Каждый spec seed'ит свой MeetingType через прямой POST
+ * и выбирает его по ID (ничего не мокается: это тот же HTTP-эндпоинт, который
+ * дёргает UI), поэтому порядок specs и retries не зависят от пустого store.
+ * Параметры совпадают с дефолтами `OwnerConfig`: `slotStepMinutes=30`,
+ * `windowDays=14`, `workingHours=09:00–18:00 Europe/Moscow`.
  *
  * Тест не использует `page.route`, `routeFromHAR` или любые подмены трафика —
  * ровно как требует acceptance-критерий тикета.
  */
-
-const API_PORT = Number(process.env.E2E_API_PORT ?? 3030);
-const API_BASE = `http://127.0.0.1:${API_PORT}`;
 
 // Жизнь спека короткая: завести тип встречи, открыть `/`, пройти форму,
 // увидеть UUID. `timeout` спека удерживаем 60с — Vite на холодном старте
@@ -38,42 +37,39 @@ test("guest happy path: select meeting type, pick slot, submit, see success UUID
   // Seed: создать один тип встречи напрямую в бэкенд. Браузер тут не
   // нужен — это эквивалент того, что owner сделал бы через `/admin/event-types`,
   // просто без раскрытия всех testid'ов owner-формы в публичном e2e.
-  const api = await pwRequest.newContext({ baseURL: API_BASE });
-  const create = await api.post("/meeting-types", {
-    data: {
-      name: "Тестовая консультация",
-      description: "Автотестовый слот для happy-path.",
-      durationMinutes: 30,
-    },
+  const meetingTypeId = await seedMeetingType({
+    name: "Тестовая консультация",
+    description: "Автотестовый слот для happy-path.",
+    durationMinutes: 30,
   });
-  expect(create.status(), "seed POST /api/meeting-types").toBe(200);
 
   await page.goto("/");
   await expect(page.getByTestId("home-page")).toBeVisible();
 
-  // На главной ждём появления хотя бы одной карточки типа встречи.
-  // Если `home-empty` остаётся — seed'а не было.
+  // На главной ждём карточку именно созданного MeetingType, а не первую
+  // по порядку: в store уже могут быть seed'ы другого spec или retry.
   await expect(page.getByTestId("meeting-types-list")).toBeVisible({ timeout: 10_000 });
-  const card = page.getByTestId(/^meeting-type-card-/).first();
+  const card = page.getByTestId(`meeting-type-card-${meetingTypeId}`);
   await expect(card).toBeVisible();
   await card.click();
 
-  // После клика должны попасть на /book/:id с сеткой слотов.
-  await expect(page).toHaveURL(/\/book\//);
+  // После клика должны попасть на страницу именно seed MeetingType.
+  await expect(page).toHaveURL(`/book/${meetingTypeId}`);
   await expect(page.getByTestId("book-page")).toBeVisible();
   await expect(page.getByTestId("book-grid")).toBeVisible({ timeout: 10_000 });
 
-  // Свободные слоты — это `slot-{iso-datetime}`; первый видимый берём.
-  // Сетка отдаёт только слоты в будущем (уже начавшиеся не предлагаются),
-  // поэтому первый слот всегда валиден для записи.
-  const slot = page.getByTestId(/^slot-/).first();
-  await expect(slot).toBeVisible({ timeout: 10_000 });
-  await slot.click();
+  // Явный master-detail выбор дня и времени вынесен в общий guest-flow helper.
+  const { startsAt } = await selectBookingSlot(page);
 
-  // После клика по слоту ожидаем увидеть форму гостя (B4-тест).
-  // Сама форма ответственна за B4; здесь — только проверка контракта
-  // через data-testid'ы, заявленные в спецификации Wave B / C.
-  await expect(page.getByTestId("booking-form")).toBeVisible({ timeout: 10_000 });
+  // Проверяем человекочитаемое представление выбранного слота без ISO-строки.
+  const selectedSlot = page.getByTestId("booking-prefilled-slot");
+  await expect(selectedSlot).toContainText("Тестовая консультация ·");
+  await expect(selectedSlot).toContainText(
+    /[а-я]+, \d{1,2} [а-я]+ \d{4} · \d{2}:\d{2}–\d{2}:\d{2}/,
+  );
+  await expect(selectedSlot).not.toContainText(startsAt);
+  await expect(page.getByTestId("booking-prefilled-slot-iso")).not.toBeVisible();
+  const selectedSummary = await selectedSlot.innerText();
 
   await page.getByTestId("booking-name").fill("Иван Иванов");
   await page.getByTestId("booking-email").fill("ivan@example.com");
@@ -85,4 +81,6 @@ test("guest happy path: select meeting type, pick slot, submit, see success UUID
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
   );
   await expect(page.getByTestId("booking-success-meeting-type-name")).toContainText(/\S+/);
+  await expect(page.getByTestId("booking-success-summary")).toHaveText(selectedSummary);
+  await expect(page.getByTestId("booking-success")).not.toContainText(startsAt);
 });

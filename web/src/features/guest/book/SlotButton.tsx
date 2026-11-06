@@ -1,4 +1,6 @@
 import { Button } from "@/components/ui/button";
+import { formatTime } from "@/lib/dateTime";
+import { useOwnerTimezone } from "@/features/owner/bookings/OwnerTimezoneContext";
 
 export interface SlotButtonProps {
   startsAt: string;
@@ -10,7 +12,7 @@ export interface SlotButtonProps {
 }
 
 export function SlotButton({ startsAt, onClick }: SlotButtonProps) {
-  const hh = startsAt.slice(11, 16);
+  const { timezone } = useOwnerTimezone();
   return (
     <Button
       type="button"
@@ -19,7 +21,7 @@ export function SlotButton({ startsAt, onClick }: SlotButtonProps) {
       className="justify-center"
       onClick={onClick}
     >
-      {hh}
+      {formatTime(startsAt, timezone)}
     </Button>
   );
 }

@@ -14,9 +14,9 @@ import { defineConfig, devices } from "@playwright/test";
  *   2. Vite dev-frontend на 5173 с `VITE_API_TARGET=http://127.0.0.1:3030`,
  *      чтобы proxy `/api/*` ходил в e2e-бэкенд, а не в 3000-й dev.
  *
- * При локальном запуске вне CI `reuseExistingServer` позволяет переиспользовать
- * процессы, если они уже подняты (быстрая итерация). В CI — строгий
- * start/stop для каждого прогона.
+ * По умолчанию каждый прогон стартует и останавливает собственные процессы.
+ * Переиспользование уже запущенных серверов доступно только через явный ручной
+ * `npm run test:e2e:reuse`; canonical `make check` всегда использует strict mode.
  */
 
 const HOST = "127.0.0.1";
@@ -25,6 +25,7 @@ const WEB_PORT = 5173;
 const WEB_URL = `http://${HOST}:${WEB_PORT}`;
 
 const isCI = !!process.env.CI;
+const reuseExistingServer = process.env.E2E_REUSE_EXISTING_SERVER === "1";
 
 export default defineConfig({
   testDir: "./e2e",
@@ -47,7 +48,7 @@ export default defineConfig({
     {
       command: `npm run build --silent && PORT=${API_PORT} HOST=${HOST} node dist/server.js`,
       url: `http://${HOST}:${API_PORT}/health`,
-      reuseExistingServer: !isCI,
+      reuseExistingServer,
       timeout: 60_000,
       stdout: "ignore",
       stderr: "pipe",
@@ -55,7 +56,7 @@ export default defineConfig({
     {
       command: "npm --prefix web run dev",
       url: WEB_URL,
-      reuseExistingServer: !isCI,
+      reuseExistingServer,
       timeout: 60_000,
       env: {
         // Vite proxy `/api/*` ходит в e2e-бэкенд, не в 3000 dev.

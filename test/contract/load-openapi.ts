@@ -29,10 +29,20 @@ export interface OpenApiSchema {
   properties?: Record<string, OpenApiSchema>;
   items?: OpenApiSchema;
   allOf?: readonly OpenApiSchema[];
+  anyOf?: readonly OpenApiSchema[];
   $ref?: string;
 }
 
+export interface OpenApiResponse {
+  content?: Record<string, { schema: OpenApiSchema }>;
+}
+
+export interface OpenApiOperation {
+  responses: Record<string, OpenApiResponse>;
+}
+
 export interface OpenApiDoc {
+  paths: Record<string, Partial<Record<"get" | "post", OpenApiOperation>>>;
   components: {
     schemas: Record<string, OpenApiSchema>;
   };

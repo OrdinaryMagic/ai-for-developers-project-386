@@ -13,6 +13,7 @@ export interface OwnerConfig {
   owner: { name: string; timezone: string };
   windowDays: number;
   slotStepMinutes: number;
+  workingDays: number[];
   workingHours: { start: string; end: string };
 }
 
@@ -27,6 +28,7 @@ const DEFAULTS = {
   timezone: "Europe/Moscow",
   windowDays: 14,
   slotStepMinutes: 30,
+  workingDays: [1, 2, 3, 4, 5],
   workingHoursStart: "09:00",
   workingHoursEnd: "18:00",
 } as const;
@@ -40,6 +42,23 @@ function parsePositiveInt(name: string, raw: string | undefined, fallback: numbe
   return n;
 }
 
+function parseWorkingDays(raw: string | undefined): number[] {
+  if (raw === undefined) return [...DEFAULTS.workingDays];
+
+  const items = raw.split(",").map((item) => item.trim());
+  if (items.some((item) => !/^[1-7]$/.test(item))) {
+    throw new Error(
+      `OWNER_WORKING_DAYS must be a non-empty comma-separated list of ISO weekdays 1-7 without missing items; got "${raw}"`,
+    );
+  }
+
+  const days = items.map(Number);
+  if (new Set(days).size !== days.length) {
+    throw new Error(`OWNER_WORKING_DAYS must not contain duplicate ISO weekdays; got "${raw}"`);
+  }
+  return days;
+}
+
 /**
  * Читает и валидирует конфигурацию владельца из переданного источника (по
  * умолчанию `process.env`). Бросает, если значения некорректны (формат
@@ -47,7 +66,7 @@ function parsePositiveInt(name: string, raw: string | undefined, fallback: numbe
  *
  * Значения по умолчанию — из Configuration (см. GLOSSARY.md): (`name=Demo Owner`,
  * `timezone=Europe/Moscow`, `windowDays=14`, `slotStepMinutes=30`,
- * `workingHours=09:00–18:00`).
+ * `workingDays=1,2,3,4,5`, `workingHours=09:00–18:00`).
  */
 export function loadOwnerConfig(env: EnvSource = process.env): OwnerConfig {
   const name = env.OWNER_NAME?.trim() || DEFAULTS.name;
@@ -83,6 +102,7 @@ export function loadOwnerConfig(env: EnvSource = process.env): OwnerConfig {
     owner: { name, timezone },
     windowDays,
     slotStepMinutes,
+    workingDays: parseWorkingDays(env.OWNER_WORKING_DAYS),
     workingHours: { start, end },
   };
 }

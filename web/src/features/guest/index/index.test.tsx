@@ -12,14 +12,11 @@ function renderHome() {
   );
 }
 
-function mockFetchOnce(body: unknown, init: { status?: number; ok?: boolean } = {}) {
-  const status = init.status ?? 200;
-  const ok = init.ok ?? (status >= 200 && status < 300);
-  const response = {
-    ok,
-    status,
-    json: async () => body,
-  } as unknown as Response;
+function mockFetchOnce(body: unknown, init: { status?: number } = {}) {
+  const response = new Response(JSON.stringify(body), {
+    status: init.status ?? 200,
+    headers: { "Content-Type": "application/json" },
+  });
   vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(response);
 }
 

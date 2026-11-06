@@ -41,6 +41,7 @@ const CODE_ENV_VARS = [
   "OWNER_TIMEZONE",
   "OWNER_WINDOW_DAYS",
   "OWNER_SLOT_STEP_MINUTES",
+  "OWNER_WORKING_DAYS",
   "OWNER_WORKING_HOURS_START",
   "OWNER_WORKING_HOURS_END",
 ] as const;
@@ -65,6 +66,7 @@ const EXPECTED_ENV_VARS = [
   { name: "OWNER_TIMEZONE", values: ["Europe/Moscow"] },
   { name: "OWNER_WINDOW_DAYS", values: ["14"] },
   { name: "OWNER_SLOT_STEP_MINUTES", values: ["30"] },
+  { name: "OWNER_WORKING_DAYS", values: ["1,2,3,4,5"] },
   { name: "OWNER_WORKING_HOURS_START", values: ["09:00"] },
   { name: "OWNER_WORKING_HOURS_END", values: ["18:00"] },
 ] as const;
@@ -78,6 +80,7 @@ const PUBLIC_ENV_VARS = [
   "OWNER_TIMEZONE",
   "OWNER_WINDOW_DAYS",
   "OWNER_SLOT_STEP_MINUTES",
+  "OWNER_WORKING_DAYS",
   "OWNER_WORKING_HOURS_START",
   "OWNER_WORKING_HOURS_END",
 ] as const;

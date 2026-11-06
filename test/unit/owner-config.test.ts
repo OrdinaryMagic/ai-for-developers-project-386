@@ -10,6 +10,7 @@ describe("loadOwnerConfig defaults", () => {
       owner: { name: "Demo Owner", timezone: tz },
       windowDays: 14,
       slotStepMinutes: 30,
+      workingDays: [1, 2, 3, 4, 5],
       workingHours: { start: "09:00", end: "18:00" },
     });
   });
@@ -22,6 +23,7 @@ describe("loadOwnerConfig happy path", () => {
       OWNER_TIMEZONE: "Asia/Yekaterinburg",
       OWNER_WINDOW_DAYS: "7",
       OWNER_SLOT_STEP_MINUTES: "60",
+      OWNER_WORKING_DAYS: "6,7",
       OWNER_WORKING_HOURS_START: "10:00",
       OWNER_WORKING_HOURS_END: "19:30",
     });
@@ -29,12 +31,20 @@ describe("loadOwnerConfig happy path", () => {
       owner: { name: "Иван Петров", timezone: "Asia/Yekaterinburg" },
       windowDays: 7,
       slotStepMinutes: 60,
+      workingDays: [6, 7],
       workingHours: { start: "10:00", end: "19:30" },
     });
   });
 });
 
 describe("loadOwnerConfig validation", () => {
+  it.each(["", "   ", "0", "8", "1,,2", ",1", "1,", "1,1", "1,2,2", "1.0", "01", "1 2", "Mon"])(
+    "отклоняет OWNER_WORKING_DAYS=%j с понятной ошибкой",
+    (raw) => {
+      expect(() => loadOwnerConfig({ OWNER_WORKING_DAYS: raw })).toThrow(/OWNER_WORKING_DAYS/);
+    },
+  );
+
   it("бросает на некорректном TZ", () => {
     expect(() => loadOwnerConfig({ OWNER_TIMEZONE: "Mars/Olympus_Mons" })).toThrow();
   });

@@ -29,20 +29,20 @@ export function BookingsPage() {
 
   return (
     <div className="container py-8" data-testid="bookings-page">
-      <h1 className="mb-1 text-2xl font-semibold tracking-tight">Bookings</h1>
+      <h1 className="mb-1 text-2xl font-semibold tracking-tight">Бронирования</h1>
       <p className="mb-4 text-sm text-muted-foreground">
         Только предстоящие бронирования — прошедшие в v1 не показываются.
       </p>
 
       {error !== null && (
         <div data-testid="bookings-error" className="text-sm text-destructive">
-          Failed to load bookings: {error}
+          Не удалось загрузить бронирования: {error}
         </div>
       )}
 
       {bookings === null && error === null && (
         <div data-testid="bookings-loading" className="text-sm text-muted-foreground">
-          Loading…
+          Загрузка…
         </div>
       )}
 

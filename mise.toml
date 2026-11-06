@@ -4,7 +4,7 @@
 experimental = true
 
 [tools]
-node = "22"
+node = "22.23.4"
 hk = "2.11.0"
 "npm:@commitlint/cli" = "latest"
 gitleaks = "8.18.4"
@@ -32,9 +32,9 @@ description = "Compile TypeSpec to dist/openapi.yaml"
 run = "npx tsp compile spec/main.tsp"
 
 [tasks."gen:sdk"]
-description = "Regenerate web/src/api/sdk.ts from openapi.yaml"
+description = "Regenerate single-file Orval fetch SDK in web/src/api/sdk.ts from openapi.yaml"
 depends = ["spec"]
-run = "npx -y openapi-typescript@7.13.0 ./openapi.yaml -o ./web/src/api/sdk.ts && npx oxfmt ./web/src/api/sdk.ts"
+run = "npx --no-install orval --config ./orval.config.ts && npx --no-install oxfmt ./web/src/api/sdk.ts"
 
 [tasks.test]
 description = "Run vitest once"
@@ -53,8 +53,8 @@ description = "Type-check without emitting"
 run = "npm run typecheck"
 
 [tasks.check]
-description = "All project checks: typecheck + lint + format:check + test (fail-fast, sequential)"
-run = "npm run typecheck && npm run lint && npm run format:check && npm run test"
+description = "Full project gate: backend/web checks, web production build and Playwright e2e (fail-fast, sequential)"
+run = "npm run typecheck && npm run typecheck:web && npm run lint && npm run format:check && npm run test && npm run test:web && npm run build:web && npm run test:e2e"
 
 # --- mise hooks: environment events ---
 
