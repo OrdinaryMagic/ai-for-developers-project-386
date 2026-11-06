@@ -8,7 +8,8 @@ import {
 } from "@/api/sdk";
 import { getConfiguration, listBookings } from "@/features/owner/bookings/api";
 
-vi.mock("@/api/sdk", () => ({
+vi.mock("@/api/sdk", async (importOriginal) => ({
+  ...(await importOriginal()),
   bookingsList: vi.fn(),
   configGetConfig: vi.fn(),
 }));

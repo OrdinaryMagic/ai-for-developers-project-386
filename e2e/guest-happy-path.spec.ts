@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { seedMeetingType } from "./seed-meeting-type";
+import { selectBookingSlot } from "./select-booking-slot";
 
 /**
  * C1 / Wave C — карта #26: сквозной happy-path сценарий гостя
@@ -57,40 +58,16 @@ test("guest happy path: select meeting type, pick slot, submit, see success UUID
   await expect(page.getByTestId("book-page")).toBeVisible();
   await expect(page.getByTestId("book-grid")).toBeVisible({ timeout: 10_000 });
 
-  // Сначала явно выбираем день, затем время только внутри него. Первый
-  // доступный день уже выбран по умолчанию, но клик фиксирует именно master-detail
-  // сценарий гостя, а не зависимость теста от default state.
-  const day = page.locator('[data-testid^="day-"][data-testid$="-button"]:enabled').first();
-  await expect(day).toBeVisible({ timeout: 10_000 });
-  const dayTestid = await day.getAttribute("data-testid");
-  if (!dayTestid) throw new Error("day testid is null");
-  const selectedDate = dayTestid.slice("day-".length, -"-button".length);
-  await day.click();
-  await expect(day).toHaveAttribute("aria-pressed", "true");
+  // Явный master-detail выбор дня и времени вынесен в общий guest-flow helper.
+  const { startsAt } = await selectBookingSlot(page);
 
-  // Свободные слоты — это `slot-{iso-datetime}`; первый видимый берём.
-  // Сетка отдаёт только слоты в будущем (уже начавшиеся не предлагаются),
-  // поэтому первый слот всегда валиден для записи.
-  const slot = page.getByTestId(/^slot-/).first();
-  await expect(slot).toBeVisible({ timeout: 10_000 });
-  await expect(slot).toHaveText(/^\d{2}:\d{2}$/);
-  const slotTestid = await slot.getAttribute("data-testid");
-  if (!slotTestid) throw new Error("slot testid is null");
-  const startsAt = slotTestid.slice("slot-".length);
-  expect(startsAt.startsWith(`${selectedDate}T`)).toBe(true);
-  await slot.click();
-
-  // После клика по слоту ожидаем увидеть форму гостя (B4-тест).
-  // Сама форма ответственна за B4; здесь — только проверка контракта
-  // через data-testid'ы, заявленные в спецификации Wave B / C.
-  await expect(page.getByTestId("booking-form")).toBeVisible({ timeout: 10_000 });
+  // Проверяем человекочитаемое представление выбранного слота без ISO-строки.
   const selectedSlot = page.getByTestId("booking-prefilled-slot");
   await expect(selectedSlot).toContainText("Тестовая консультация ·");
   await expect(selectedSlot).toContainText(
     /[а-я]+, \d{1,2} [а-я]+ \d{4} · \d{2}:\d{2}–\d{2}:\d{2}/,
   );
   await expect(selectedSlot).not.toContainText(startsAt);
-  await expect(page.getByTestId("booking-prefilled-slot-iso")).toHaveValue(startsAt);
   await expect(page.getByTestId("booking-prefilled-slot-iso")).not.toBeVisible();
   const selectedSummary = await selectedSlot.innerText();
 
