@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { seedMeetingType } from "./seed-meeting-type";
+import { selectBookingSlot } from "./select-booking-slot";
 
 /**
  * C1 / Wave C — карта #26: конфликт слотов (тикет #34).
@@ -55,22 +56,7 @@ test("guest conflict: two browser contexts POST the same slot; second sees SLOT_
     await expect(pageA).toHaveURL(`/book/${meetingTypeId}`);
     await expect(pageA.getByTestId("book-grid")).toBeVisible({ timeout: 10_000 });
 
-    const dayA = pageA.locator('[data-testid^="day-"][data-testid$="-button"]:enabled').first();
-    await expect(dayA).toBeVisible({ timeout: 10_000 });
-    const dayTestid = await dayA.getAttribute("data-testid");
-    if (!dayTestid) throw new Error("day testid is null");
-    const selectedDate = dayTestid.slice("day-".length, -"-button".length);
-    await dayA.click();
-    await expect(dayA).toHaveAttribute("aria-pressed", "true");
-
-    const slotA = pageA.getByTestId(/^slot-/).first();
-    await expect(slotA).toBeVisible({ timeout: 10_000 });
-    const slotTestid = await slotA.getAttribute("data-testid");
-    if (!slotTestid) throw new Error("slot testid is null");
-    expect(slotTestid.slice("slot-".length).startsWith(`${selectedDate}T`)).toBe(true);
-    await slotA.click();
-
-    await expect(pageA.getByTestId("booking-form")).toBeVisible({ timeout: 10_000 });
+    const selection = await selectBookingSlot(pageA);
     await pageA.getByTestId("booking-name").fill("Алиса");
     await pageA.getByTestId("booking-email").fill("alice@example.com");
 
@@ -81,17 +67,7 @@ test("guest conflict: two browser contexts POST the same slot; second sees SLOT_
     await expect(pageB).toHaveURL(`/book/${meetingTypeId}`);
     await expect(pageB.getByTestId("book-grid")).toBeVisible({ timeout: 10_000 });
 
-    const dayB = pageB.getByTestId(dayTestid);
-    await expect(dayB).toBeEnabled();
-    await dayB.click();
-    await expect(dayB).toHaveAttribute("aria-pressed", "true");
-    const slotB = pageB.getByTestId(slotTestid);
-    await expect(slotB).toBeVisible({ timeout: 10_000 });
-    await slotB.click();
-    await expect(pageB.getByTestId("booking-form")).toBeVisible({ timeout: 10_000 });
-    await expect(pageB.getByTestId("booking-prefilled-slot-iso")).toHaveValue(
-      slotTestid.slice("slot-".length),
-    );
+    await selectBookingSlot(pageB, selection);
     await pageB.getByTestId("booking-name").fill("Борис");
     await pageB.getByTestId("booking-email").fill("boris@example.com");
 

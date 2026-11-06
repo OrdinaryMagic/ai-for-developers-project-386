@@ -10,7 +10,8 @@ import {
 } from "@/api/sdk";
 import { getAvailability, getMeetingType, listMeetingTypes } from "@/features/guest/api";
 
-vi.mock("@/api/sdk", () => ({
+vi.mock("@/api/sdk", async (importOriginal) => ({
+  ...(await importOriginal()),
   meetingTypesAvailability: vi.fn(),
   meetingTypesGetById: vi.fn(),
   meetingTypesList: vi.fn(),

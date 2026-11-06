@@ -1,22 +1,7 @@
 import { bookingsList, configGetConfig, type Booking, type Configuration } from "@/api/sdk";
+import { isBooking } from "@/api/guards";
 
 export type { Booking, Configuration };
-
-const BOOKING_STRING_FIELDS = [
-  "id",
-  "meetingTypeId",
-  "meetingTypeName",
-  "guestName",
-  "guestEmail",
-  "startsAt",
-  "endsAt",
-] as const;
-
-function isBooking(value: unknown): value is Booking {
-  if (typeof value !== "object" || value === null) return false;
-  const candidate = value as Record<string, unknown>;
-  return BOOKING_STRING_FIELDS.every((field) => typeof candidate[field] === "string");
-}
 
 function isConfiguration(value: unknown): value is Configuration {
   if (typeof value !== "object" || value === null) return false;

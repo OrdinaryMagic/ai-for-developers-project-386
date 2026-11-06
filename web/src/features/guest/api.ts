@@ -6,19 +6,9 @@ import {
   type AvailabilityDay,
   type MeetingType,
 } from "@/api/sdk";
+import { isMeetingType } from "@/api/guards";
 
 export type { Availability, AvailabilityDay, MeetingType };
-
-function isMeetingType(value: unknown): value is MeetingType {
-  if (typeof value !== "object" || value === null) return false;
-  const candidate = value as Record<string, unknown>;
-  return (
-    typeof candidate.id === "string" &&
-    typeof candidate.name === "string" &&
-    typeof candidate.description === "string" &&
-    typeof candidate.durationMinutes === "number"
-  );
-}
 
 function isAvailability(value: unknown): value is Availability {
   if (typeof value !== "object" || value === null) return false;
