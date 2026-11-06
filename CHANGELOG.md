@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/OrdinaryMagic/ai-for-developers-project-386/compare/v1.2.0...v1.3.0) (2026-11-06)
+
+
+### Features
+
+* project gate, generated SDK и booking UX ([#82](https://github.com/OrdinaryMagic/ai-for-developers-project-386/issues/82)) ([f1c31d7](https://github.com/OrdinaryMagic/ai-for-developers-project-386/commit/f1c31d7aa9163a8c38ddba613f7bbcba19080e49))
+
 ## [1.2.0](https://github.com/OrdinaryMagic/ai-for-developers-project-386/compare/v1.1.0...v1.2.0) (2026-11-04)
 
 
